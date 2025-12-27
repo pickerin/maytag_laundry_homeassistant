@@ -1,0 +1,10 @@
+{
+  "domain": "maytag_laundry",
+  "name": "Maytag Laundry",
+  "version": "0.0.1",
+  "documentation": "https://github.com/pickerin/maytag_laundry_homeassistant",
+  "issue_tracker": "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
+  "codeowners": ["@pickerin"],
+  "config_flow": true,
+  "iot_class": "cloud_polling"
+}

@@ -1,0 +1,1 @@
+DOMAIN = "maytag_laundry"

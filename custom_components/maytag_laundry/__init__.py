@@ -1,0 +1,1 @@
+"""Maytag Laundry integration."""
