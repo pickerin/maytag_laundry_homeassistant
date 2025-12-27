@@ -1,3 +1,8 @@
 {
-  "title": "Maytag Laundry"
+  "title": "Maytag Laundry",
+  "config": {
+    "error": {
+      "auth_failed": "Authentication failed or no appliances could be discovered."
+    }
+  }
 }

@@ -1,7 +1,8 @@
 {
   "domain": "maytag_laundry",
   "name": "Maytag Laundry",
-  "version": "0.0.2",
+  "version": "0.0.3",
+  "requirements": ["whirlpool-sixth-sense==0.18.8"],
   "documentation": "https://github.com/pickerin/maytag_laundry_homeassistant",
   "issue_tracker": "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
   "codeowners": ["@pickerin"],
