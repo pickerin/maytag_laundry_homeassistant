@@ -2,13 +2,14 @@
 import asyncio
 import base64
 import json
+import os
 import aiohttp
 
 from whirlpool.auth import Auth
 from whirlpool.backendselector import BackendSelector, Brand, Region
 
-EMAIL = "REDACTED_EMAIL@example.com"
-PASSWORD = "REDACTED_PASSWORD"
+EMAIL = os.environ["WHIRLPOOL_EMAIL"]
+PASSWORD = os.environ["WHIRLPOOL_PASSWORD"]
 
 async def main():
     backend = BackendSelector(Brand.Maytag, Region.US)

@@ -1,12 +1,13 @@
 import asyncio
+import os
 import aiohttp
 
 from whirlpool.auth import Auth, AccountLockedError
 from whirlpool.appliancesmanager import AppliancesManager
 from whirlpool.backendselector import BackendSelector, Brand, Region
 
-EMAIL = "REDACTED_EMAIL@example.com"
-PASSWORD = "REDACTED_PASSWORD"
+EMAIL = os.environ["WHIRLPOOL_EMAIL"]
+PASSWORD = os.environ["WHIRLPOOL_PASSWORD"]
 
 async def main():
     backend = BackendSelector(Brand.Maytag, Region.US)

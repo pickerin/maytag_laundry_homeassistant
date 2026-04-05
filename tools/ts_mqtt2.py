@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import os
 import uuid
 import sys
 import aiohttp
@@ -12,8 +13,8 @@ from awsiot import mqtt_connection_builder
 from whirlpool.auth import Auth
 from whirlpool.backendselector import BackendSelector, Brand, Region
 
-EMAIL = "REDACTED_EMAIL@example.com"
-PASSWORD = "REDACTED_PASSWORD"
+EMAIL = os.environ["WHIRLPOOL_EMAIL"]
+PASSWORD = os.environ["WHIRLPOOL_PASSWORD"]
 IOT_ENDPOINT = "wt.applianceconnect.net"
 AWS_REGION = "us-east-2"
 
