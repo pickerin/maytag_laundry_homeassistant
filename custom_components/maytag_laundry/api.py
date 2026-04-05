@@ -144,3 +144,61 @@ class WhirlpoolTSClient:
             "Content-Type": "application/json",
             "User-Agent": "okhttp/3.12.0",
         }
+
+    async def _get_cognito_identity(self) -> tuple[str, str]:
+        """Step 2: Exchange OAuth Bearer token for Cognito identity.
+
+        Returns (identity_id, cognito_token).
+        """
+        url = f"{self._base_url}/api/v1/cognito/identityid"
+        async with self._session.get(url, headers=self._bearer_headers()) as resp:
+            if resp.status != 200:
+                raise AuthError(f"Cognito identity exchange failed (HTTP {resp.status})")
+            data = await resp.json()
+
+        identity_id = data["identityId"]
+        token = data["token"]
+        _LOGGER.debug("Cognito identity: %s", identity_id)
+        return identity_id, token
+
+    async def _get_aws_credentials(self, identity_id: str, cognito_token: str) -> None:
+        """Step 3: Exchange Cognito token for temporary AWS credentials."""
+        url = f"https://cognito-identity.{self._aws_region}.amazonaws.com/"
+        headers = {
+            "Content-Type": "application/x-amz-json-1.1",
+            "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
+        }
+        body = {
+            "IdentityId": identity_id,
+            "Logins": {"cognito-identity.amazonaws.com": cognito_token},
+        }
+
+        async with self._session.post(url, headers=headers, json=body) as resp:
+            if resp.status != 200:
+                raise AuthError(f"AWS credential exchange failed (HTTP {resp.status})")
+            data = await resp.json(content_type=None)
+
+        creds = data["Credentials"]
+        self._cognito_identity_id = identity_id
+        self._aws_access_key = creds["AccessKeyId"]
+        self._aws_secret_key = creds["SecretKey"]
+        self._aws_session_token = creds["SessionToken"]
+        self._aws_creds_expire_at = creds["Expiration"]
+        _LOGGER.info("AWS credentials obtained, expires at %s", self._aws_creds_expire_at)
+
+    async def ensure_aws_credentials(self) -> None:
+        """Run the full Cognito → AWS credential chain if needed.
+
+        Proactively refreshes if within 15 minutes of expiry (AWS creds last ~1 hour).
+        """
+        if (
+            self._aws_access_key
+            and time.time() < (self._aws_creds_expire_at - 900)
+        ):
+            return  # Still valid
+
+        if not self.is_oauth_valid():
+            await self.authenticate()
+
+        identity_id, cognito_token = await self._get_cognito_identity()
+        await self._get_aws_credentials(identity_id, cognito_token)

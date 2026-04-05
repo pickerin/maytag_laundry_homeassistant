@@ -93,3 +93,79 @@ class TestJWTDecode:
         jwt = _make_jwt({"TS_SAID": [], "SAID": ["LEGACY1"], "accountId": 1})
         result = client._decode_jwt(jwt)
         assert result["TS_SAID"] == []
+
+
+class TestCognitoExchange:
+    @pytest.mark.asyncio
+    async def test_get_cognito_identity(self, client, mock_session):
+        """Cognito identity exchange returns identityId and token."""
+        client.access_token = "fake-token"
+
+        cognito_response = AsyncMock()
+        cognito_response.status = 200
+        cognito_response.json = AsyncMock(return_value={
+            "identityId": "us-east-2:abc-123",
+            "token": "cognito-token-value",
+        })
+        mock_session.get = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=cognito_response)))
+
+        identity_id, token = await client._get_cognito_identity()
+
+        assert identity_id == "us-east-2:abc-123"
+        assert token == "cognito-token-value"
+
+    @pytest.mark.asyncio
+    async def test_get_aws_credentials(self, client, mock_session):
+        """AWS credential exchange returns temp credentials."""
+        aws_response = AsyncMock()
+        aws_response.status = 200
+        aws_response.json = AsyncMock(return_value={
+            "Credentials": {
+                "AccessKeyId": "AKID",
+                "SecretKey": "secret",
+                "SessionToken": "token",
+                "Expiration": 9999999999.0,
+            },
+            "IdentityId": "us-east-2:abc-123",
+        })
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=aws_response)))
+
+        await client._get_aws_credentials("us-east-2:abc-123", "cognito-token")
+
+        assert client._aws_access_key == "AKID"
+        assert client._aws_secret_key == "secret"
+        assert client._aws_session_token == "token"
+
+    @pytest.mark.asyncio
+    async def test_ensure_aws_credentials_full_chain(self, client, mock_session):
+        """ensure_aws_credentials runs Cognito + AWS exchange."""
+        import time
+        client.access_token = "fake-token"
+        client._oauth_expires_at = time.time() + 3600  # token is valid
+
+        cognito_response = AsyncMock()
+        cognito_response.status = 200
+        cognito_response.json = AsyncMock(return_value={
+            "identityId": "us-east-2:abc-123",
+            "token": "cognito-token",
+        })
+
+        aws_response = AsyncMock()
+        aws_response.status = 200
+        aws_response.json = AsyncMock(return_value={
+            "Credentials": {
+                "AccessKeyId": "AKID",
+                "SecretKey": "secret",
+                "SessionToken": "token",
+                "Expiration": 9999999999.0,
+            },
+            "IdentityId": "us-east-2:abc-123",
+        })
+
+        mock_session.get = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=cognito_response)))
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=aws_response)))
+
+        await client.ensure_aws_credentials()
+
+        assert client._cognito_identity_id == "us-east-2:abc-123"
+        assert client._aws_access_key == "AKID"
