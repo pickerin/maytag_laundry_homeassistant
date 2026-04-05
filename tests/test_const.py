@@ -21,8 +21,11 @@ def test_brand_config_has_all_brands():
 
 def test_brand_config_structure():
     for brand, config in BRAND_CONFIG.items():
-        assert "client_id" in config, f"{brand} missing client_id"
-        assert "client_secret" in config, f"{brand} missing client_secret"
+        assert "client_credentials" in config, f"{brand} missing client_credentials"
+        assert len(config["client_credentials"]) >= 1, f"{brand} has no credentials"
+        for creds in config["client_credentials"]:
+            assert "client_id" in creds, f"{brand} creds missing client_id"
+            assert "client_secret" in creds, f"{brand} creds missing client_secret"
         assert "oauth_url" in config, f"{brand} missing oauth_url"
         assert "iot_endpoint" in config, f"{brand} missing iot_endpoint"
         assert "aws_region" in config, f"{brand} missing aws_region"

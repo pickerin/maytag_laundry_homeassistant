@@ -59,8 +59,7 @@ class WhirlpoolTSClient:
         brand_cfg = BRAND_CONFIG[brand]
         self._email = email
         self._password = password
-        self._client_id = brand_cfg["client_id"]
-        self._client_secret = brand_cfg["client_secret"]
+        self._client_credentials = brand_cfg["client_credentials"]
         self._oauth_url = brand_cfg["oauth_url"]
         self._base_url = brand_cfg["base_url"]
         self._iot_endpoint = brand_cfg["iot_endpoint"]
@@ -96,29 +95,40 @@ class WhirlpoolTSClient:
         return json.loads(base64.b64decode(payload_b64))
 
     async def authenticate(self) -> None:
-        """Step 1: OAuth password grant. Populates access_token, ts_saids, account_id."""
-        auth_data = {
-            "grant_type": "password",
-            "username": self._email,
-            "password": self._password,
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-        }
+        """Step 1: OAuth password grant. Populates access_token, ts_saids, account_id.
+
+        Tries each client credential set in order until one succeeds.
+        """
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "okhttp/3.12.0",
         }
 
-        async with self._session.post(
-            self._oauth_url, data=auth_data, headers=headers
-        ) as resp:
-            if resp.status == 423:
-                raise AuthError("Account is locked — reset password at brand website")
-            if resp.status != 200:
-                text = await resp.text()
-                raise AuthError(f"OAuth failed (HTTP {resp.status}): {text}")
+        last_error = None
+        for creds in self._client_credentials:
+            auth_data = {
+                "grant_type": "password",
+                "username": self._email,
+                "password": self._password,
+                "client_id": creds["client_id"],
+                "client_secret": creds["client_secret"],
+            }
 
-            data = await resp.json()
+            async with self._session.post(
+                self._oauth_url, data=auth_data, headers=headers
+            ) as resp:
+                if resp.status == 423:
+                    raise AuthError("Account is locked — reset password at brand website")
+                if resp.status == 200:
+                    data = await resp.json()
+                    break
+                last_error = await resp.text()
+                _LOGGER.debug(
+                    "OAuth attempt with %s failed (HTTP %s): %s",
+                    creds["client_id"], resp.status, last_error,
+                )
+        else:
+            raise AuthError(f"OAuth failed with all credential sets: {last_error}")
 
         self.access_token = data["access_token"]
         self._refresh_token = data.get("refresh_token")
