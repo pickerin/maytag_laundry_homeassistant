@@ -1,6 +1,7 @@
 """Tests for WhirlpoolTSClient."""
 import base64
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -169,3 +170,74 @@ class TestCognitoExchange:
 
         assert client._cognito_identity_id == "us-east-2:abc-123"
         assert client._aws_access_key == "AKID"
+
+
+class TestDeviceDiscovery:
+    def test_decode_hex_name(self, client):
+        """Hex-encoded name is decoded to UTF-8."""
+        assert client._decode_hex_name("4d617974616720576173686572") == "Maytag Washer"
+
+    def test_decode_hex_name_invalid(self, client):
+        """Non-hex name is returned as-is."""
+        assert client._decode_hex_name("Plain Name") == "Plain Name"
+
+    @pytest.mark.asyncio
+    async def test_describe_thing(self, client, mock_session):
+        """describe_thing returns DeviceInfo from AWS IoT."""
+        client._aws_access_key = "AKID"
+        client._aws_secret_key = "secret"
+        client._aws_session_token = "token"
+        client._aws_creds_expire_at = time.time() + 3600
+        client._cognito_identity_id = "us-east-2:abc"
+
+        mock_iot = MagicMock()
+        mock_iot.describe_thing.return_value = {
+            "thingName": "SAID1",
+            "thingTypeName": "MTW7205RR0",
+            "attributes": {
+                "Brand": "MAYTAG",
+                "Category": "LAUNDRY",
+                "Serial": "CE3600456",
+                "Name": "4d617974616720576173686572",
+                "WifiMacAddress": "3C:8A:1F:0C:7D:50",
+            },
+        }
+
+        with patch("custom_components.maytag_laundry.api.boto3") as mock_boto3:
+            mock_boto3.client.return_value = mock_iot
+            device = await client._describe_thing("SAID1")
+
+        assert device.said == "SAID1"
+        assert device.model == "MTW7205RR0"
+        assert device.brand == "MAYTAG"
+        assert device.name == "Maytag Washer"
+        assert device.serial == "CE3600456"
+
+    @pytest.mark.asyncio
+    async def test_discover_devices_populates_dict(self, client, mock_session):
+        """discover_devices calls describe_thing for each TS_SAID."""
+        client.ts_saids = ["SAID1"]
+        client._aws_access_key = "AKID"
+        client._aws_secret_key = "secret"
+        client._aws_session_token = "token"
+        client._aws_creds_expire_at = time.time() + 3600
+        client._cognito_identity_id = "us-east-2:abc"
+
+        mock_iot = MagicMock()
+        mock_iot.describe_thing.return_value = {
+            "thingName": "SAID1",
+            "thingTypeName": "MTW7205RR0",
+            "attributes": {
+                "Brand": "MAYTAG",
+                "Category": "LAUNDRY",
+                "Serial": "SER1",
+                "Name": "4d617974616720576173686572",
+            },
+        }
+
+        with patch("custom_components.maytag_laundry.api.boto3") as mock_boto3:
+            mock_boto3.client.return_value = mock_iot
+            await client.discover_devices()
+
+        assert "SAID1" in client.devices
+        assert client.devices["SAID1"].model == "MTW7205RR0"

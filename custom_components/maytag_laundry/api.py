@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 import aiohttp
+import boto3
 
 from .const import BRAND_CONFIG
 
@@ -202,3 +203,56 @@ class WhirlpoolTSClient:
 
         identity_id, cognito_token = await self._get_cognito_identity()
         await self._get_aws_credentials(identity_id, cognito_token)
+
+    @staticmethod
+    def _decode_hex_name(hex_name: str) -> str:
+        """Decode hex-encoded device name to UTF-8 string."""
+        try:
+            return bytes.fromhex(hex_name).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return hex_name
+
+    async def _describe_thing(self, said: str) -> DeviceInfo:
+        """Call AWS IoT DescribeThing API using boto3 (SigV4-signed).
+
+        boto3 is called in a thread executor to avoid blocking the event loop.
+        Only runs during device discovery — not in the polling loop.
+        """
+        iot = boto3.client(
+            "iot",
+            region_name=self._aws_region,
+            aws_access_key_id=self._aws_access_key,
+            aws_secret_access_key=self._aws_secret_key,
+            aws_session_token=self._aws_session_token,
+        )
+
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: iot.describe_thing(thingName=said)
+        )
+
+        attrs = result.get("attributes", {})
+        return DeviceInfo(
+            said=said,
+            model=result.get("thingTypeName", ""),
+            brand=attrs.get("Brand", ""),
+            category=attrs.get("Category", ""),
+            serial=attrs.get("Serial", ""),
+            name=self._decode_hex_name(attrs.get("Name", said)),
+            wifi_mac=attrs.get("WifiMacAddress", ""),
+        )
+
+    async def discover_devices(self) -> Dict[str, DeviceInfo]:
+        """Discover all TS devices by calling DescribeThing for each TS_SAID."""
+        await self.ensure_aws_credentials()
+
+        for said in self.ts_saids:
+            try:
+                device = await self._describe_thing(said)
+                self.devices[said] = device
+                _LOGGER.info(
+                    "Discovered device: %s (%s, %s)", device.name, device.model, device.said
+                )
+            except Exception:
+                _LOGGER.exception("Failed to describe thing %s", said)
+
+        return self.devices
