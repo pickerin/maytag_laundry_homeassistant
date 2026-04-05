@@ -1,46 +1,18 @@
+"""Config flow for Maytag Laundry integration."""
 from __future__ import annotations
 
 import logging
-import voluptuous as vol
+
 import aiohttp
+import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
-from whirlpool.auth import Auth
-from whirlpool.appliancesmanager import AppliancesManager
-from whirlpool.backendselector import BackendSelector, Brand, Region
-
-from .const import DOMAIN
+from .api import WhirlpoolTSClient, AuthError
+from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_BRAND, CONF_DEVICES, BRAND_CONFIG
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def _validate_and_discover(hass: HomeAssistant, email: str, password: str) -> dict:
-    """Validate credentials and fetch appliances. Raises on failure."""
-    backend_selector = BackendSelector(Brand.Maytag, Region.US)
-
-    async with aiohttp.ClientSession() as session:
-        auth = Auth(backend_selector, email, password, session)
-        await auth.do_auth(store=False)
-
-        mgr = AppliancesManager(backend_selector, auth, session)
-        ok = await mgr.fetch_appliances()
-        if not ok:
-            raise ValueError("Could not fetch appliances")
-
-        # washer_dryers is a combined list; items are dicts with "SAID" key
-        washer_dryers = mgr.washer_dryers or []
-        washers = [a["SAID"] for a in washer_dryers if "washer" in a.get("DATA_MODEL", "").lower()]
-        dryers = [a["SAID"] for a in washer_dryers if "dryer" in a.get("DATA_MODEL", "").lower()]
-        others = [a["SAID"] for a in (mgr.aircons or []) + (mgr.ovens or [])]
-
-        return {
-            "washers": washers,
-            "dryers": dryers,
-            "others": others,
-        }
 
 
 class MaytagLaundryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -49,35 +21,87 @@ class MaytagLaundryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None) -> FlowResult:
+        """Handle the initial user form."""
+        errors = {}
+
         if user_input is not None:
-            email = user_input["email"]
-            password = user_input["password"]
+            email = user_input[CONF_EMAIL]
+            password = user_input[CONF_PASSWORD]
+            brand = user_input[CONF_BRAND]
+
+            # Prevent duplicate entries for the same account
+            await self.async_set_unique_id(email.lower())
+            self._abort_if_unique_id_configured()
 
             try:
-                discovered = await _validate_and_discover(self.hass, email, password)
-            except Exception as err:
-                _LOGGER.exception("Auth/discovery failed: %s", err)
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=self._schema(),
-                    errors={"base": "auth_failed"},
-                )
+                devices = await self._validate_and_discover(email, password, brand)
+            except AuthError as err:
+                _LOGGER.error("Authentication failed: %s", err)
+                errors["base"] = "auth_failed"
+            except Exception:
+                _LOGGER.exception("Unexpected error during setup")
+                errors["base"] = "unknown"
+            else:
+                if not devices:
+                    errors["base"] = "no_devices"
+                else:
+                    return self.async_create_entry(
+                        title=f"{brand} Laundry",
+                        data={
+                            CONF_EMAIL: email,
+                            CONF_PASSWORD: password,
+                            CONF_BRAND: brand,
+                            CONF_DEVICES: {
+                                d.said: {
+                                    "model": d.model,
+                                    "brand": d.brand,
+                                    "category": d.category,
+                                    "serial": d.serial,
+                                    "name": d.name,
+                                }
+                                for d in devices.values()
+                            },
+                        },
+                    )
 
-            title = "Maytag Laundry"
-            data = {
-                "email": email,
-                "password": password,
-                "discovered": discovered,
-            }
-            return self.async_create_entry(title=title, data=data)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self._schema(user_input),
+            errors=errors,
+        )
 
-        return self.async_show_form(step_id="user", data_schema=self._schema())
+    async def async_step_reauth(self, entry_data: dict) -> FlowResult:
+        """Handle reauth when credentials expire."""
+        return await self.async_step_user()
 
     @staticmethod
-    def _schema() -> vol.Schema:
+    async def _validate_and_discover(email: str, password: str, brand: str) -> dict:
+        """Validate credentials and discover TS devices."""
+        async with aiohttp.ClientSession() as session:
+            client = WhirlpoolTSClient(
+                email=email,
+                password=password,
+                brand=brand,
+                session=session,
+            )
+            await client.authenticate()
+
+            if not client.ts_saids:
+                return {}
+
+            await client.ensure_aws_credentials()
+            await client.discover_devices()
+            return client.devices
+
+    @staticmethod
+    def _schema(user_input: dict | None = None) -> vol.Schema:
+        defaults = user_input or {}
         return vol.Schema(
             {
-                vol.Required("email"): str,
-                vol.Required("password"): str,
+                vol.Required(CONF_EMAIL, default=defaults.get(CONF_EMAIL, "")): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Required(CONF_BRAND, default=defaults.get(CONF_BRAND, "Maytag")): vol.In(
+                    list(BRAND_CONFIG.keys())
+                ),
             }
         )
