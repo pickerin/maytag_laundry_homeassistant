@@ -1,8 +1,24 @@
 {
   "title": "Maytag Laundry",
   "config": {
+    "step": {
+      "user": {
+        "title": "Connect your Whirlpool account",
+        "description": "Enter your Maytag, Whirlpool, or KitchenAid app credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "brand": "Brand"
+        }
+      }
+    },
     "error": {
-      "auth_failed": "Authentication failed or no appliances could be discovered."
+      "auth_failed": "Authentication failed. Check your email, password, and brand selection.",
+      "no_devices": "No supported appliances found on this account. This integration only supports newer (TS) appliances.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
     }
   }
 }
