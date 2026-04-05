@@ -256,3 +256,159 @@ class WhirlpoolTSClient:
                 _LOGGER.exception("Failed to describe thing %s", said)
 
         return self.devices
+
+    # --- MQTT topic helpers ---
+
+    @staticmethod
+    def _state_update_topic(model: str, said: str) -> str:
+        return f"dt/{model}/{said}/state/update"
+
+    def _command_response_topic(self, model: str, said: str) -> str:
+        return f"cmd/{model}/{said}/response/{self._cognito_identity_id}"
+
+    def _command_request_topic(self, model: str, said: str) -> str:
+        return f"cmd/{model}/{said}/request/{self._cognito_identity_id}"
+
+    @staticmethod
+    def _get_state_payload() -> str:
+        return json.dumps({
+            "requestId": str(uuid.uuid4()),
+            "timestamp": int(time.time() * 1000),
+            "payload": {"addressee": "appliance", "command": "getState"},
+        })
+
+    # --- MQTT connection ---
+
+    async def connect(self) -> None:
+        """Establish MQTT WebSocket connection and subscribe to all device topics."""
+        from awscrt import mqtt, auth as awsauth
+        from awsiot import mqtt_connection_builder
+
+        await self.ensure_aws_credentials()
+
+        credentials_provider = awsauth.AwsCredentialsProvider.new_static(
+            access_key_id=self._aws_access_key,
+            secret_access_key=self._aws_secret_key,
+            session_token=self._aws_session_token,
+        )
+
+        client_id = f"maytag-laundry-{uuid.uuid4().hex[:8]}"
+        self._mqtt_connection = mqtt_connection_builder.websockets_with_default_aws_signing(
+            endpoint=self._iot_endpoint,
+            region=self._aws_region,
+            credentials_provider=credentials_provider,
+            client_id=client_id,
+            on_connection_interrupted=self._on_connection_interrupted,
+            on_connection_resumed=self._on_connection_resumed,
+        )
+
+        connect_future = self._mqtt_connection.connect()
+        connect_future.result(timeout=15)
+        _LOGGER.info("MQTT connected to %s as %s", self._iot_endpoint, client_id)
+
+        # Subscribe to topics for each discovered device
+        for said, device in self.devices.items():
+            model = device.model
+            for topic in [
+                self._state_update_topic(model, said),
+                self._command_response_topic(model, said),
+            ]:
+                sub_future, _ = self._mqtt_connection.subscribe(
+                    topic=topic,
+                    qos=mqtt.QoS.AT_LEAST_ONCE,
+                    callback=self._on_mqtt_message,
+                )
+                sub_future.result(timeout=10)
+                _LOGGER.debug("Subscribed: %s", topic)
+                await asyncio.sleep(0.5)  # pace subscriptions per IoT policy
+
+    def _on_connection_interrupted(self, connection, error, **kwargs):
+        _LOGGER.warning("MQTT connection interrupted: %s", error)
+
+    def _on_connection_resumed(self, connection, return_code, session_present, **kwargs):
+        _LOGGER.info("MQTT connection resumed (rc=%s)", return_code)
+        for said, callbacks in self._callbacks.items():
+            for cb in callbacks:
+                try:
+                    cb(said, None)
+                except Exception:
+                    _LOGGER.exception("Reconnect callback error for %s", said)
+
+    def _on_mqtt_message(self, topic: str, payload: bytes, dup, qos, retain, **kwargs):
+        """Handle incoming MQTT messages — state updates and command responses."""
+        try:
+            msg = json.loads(payload.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            _LOGGER.error("Failed to decode MQTT message on %s", topic)
+            return
+
+        _LOGGER.debug("MQTT message on %s: %s", topic, str(msg)[:200])
+
+        parts = topic.split("/")
+        if len(parts) < 3:
+            return
+        said = parts[2]
+
+        if topic.startswith("cmd/") and "response" in topic:
+            state = msg.get("payload", {})
+        elif topic.startswith("dt/") and "state/update" in topic:
+            state = msg
+        else:
+            return
+
+        self._device_state[said] = state
+
+        for cb in self._callbacks.get(said, []):
+            try:
+                cb(said, state)
+            except Exception:
+                _LOGGER.exception("Callback error for %s", said)
+
+    async def get_state(self, said: str) -> Optional[dict]:
+        """Publish getState command and wait for response."""
+        if said not in self.devices:
+            return None
+
+        device = self.devices[said]
+        topic = self._command_request_topic(device.model, said)
+        payload = self._get_state_payload()
+
+        from awscrt import mqtt
+
+        publish_future, _ = self._mqtt_connection.publish(
+            topic=topic,
+            payload=payload,
+            qos=mqtt.QoS.AT_LEAST_ONCE,
+        )
+        publish_future.result(timeout=10)
+        _LOGGER.debug("Published getState for %s", said)
+
+        await asyncio.sleep(2)
+        return self._device_state.get(said)
+
+    def get_cached_state(self, said: str) -> Optional[dict]:
+        """Return last known state without publishing."""
+        return self._device_state.get(said)
+
+    def register_callback(self, said: str, callback: Callable) -> None:
+        """Register a callback for state updates on a device."""
+        self._callbacks.setdefault(said, []).append(callback)
+
+    def unregister_callback(self, said: str, callback: Callable) -> None:
+        """Remove a registered callback."""
+        if said in self._callbacks:
+            try:
+                self._callbacks[said].remove(callback)
+            except ValueError:
+                pass
+
+    async def disconnect(self) -> None:
+        """Disconnect MQTT."""
+        if self._mqtt_connection:
+            try:
+                disconnect_future = self._mqtt_connection.disconnect()
+                disconnect_future.result(timeout=10)
+            except Exception:
+                _LOGGER.exception("Error disconnecting MQTT")
+            self._mqtt_connection = None
+            _LOGGER.info("MQTT disconnected")

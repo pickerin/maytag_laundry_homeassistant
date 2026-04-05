@@ -241,3 +241,30 @@ class TestDeviceDiscovery:
 
         assert "SAID1" in client.devices
         assert client.devices["SAID1"].model == "MTW7205RR0"
+
+
+class TestMQTTTopics:
+    def test_state_update_topic(self, client):
+        """State update subscription topic is correctly constructed."""
+        topic = client._state_update_topic("MTW7205RR0", "SAID1")
+        assert topic == "dt/MTW7205RR0/SAID1/state/update"
+
+    def test_command_response_topic(self, client):
+        """Command response subscription topic includes identity ID."""
+        client._cognito_identity_id = "us-east-2:abc"
+        topic = client._command_response_topic("MTW7205RR0", "SAID1")
+        assert topic == "cmd/MTW7205RR0/SAID1/response/us-east-2:abc"
+
+    def test_command_request_topic(self, client):
+        """Command request publish topic includes identity ID."""
+        client._cognito_identity_id = "us-east-2:abc"
+        topic = client._command_request_topic("MTW7205RR0", "SAID1")
+        assert topic == "cmd/MTW7205RR0/SAID1/request/us-east-2:abc"
+
+    def test_get_state_payload(self, client):
+        """getState payload has correct structure."""
+        payload = json.loads(client._get_state_payload())
+        assert "requestId" in payload
+        assert "timestamp" in payload
+        assert payload["payload"]["addressee"] == "appliance"
+        assert payload["payload"]["command"] == "getState"
