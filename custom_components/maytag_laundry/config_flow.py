@@ -30,13 +30,11 @@ async def _validate_and_discover(hass: HomeAssistant, email: str, password: str)
         if not ok:
             raise ValueError("Could not fetch appliances")
 
-        # Collect what we can; you can refine this later.
-        washers = [w.said for w in (mgr.washers or [])]
-        dryers = [d.said for d in (mgr.dryers or [])]
-        others = []
-        for group in (mgr.aircons, mgr.ovens, mgr.refrigerators):
-            if group:
-                others.extend([a.said for a in group])
+        # washer_dryers is a combined list; items are dicts with "SAID" key
+        washer_dryers = mgr.washer_dryers or []
+        washers = [a["SAID"] for a in washer_dryers if "washer" in a.get("DATA_MODEL", "").lower()]
+        dryers = [a["SAID"] for a in washer_dryers if "dryer" in a.get("DATA_MODEL", "").lower()]
+        others = [a["SAID"] for a in (mgr.aircons or []) + (mgr.ovens or [])]
 
         return {
             "washers": washers,
