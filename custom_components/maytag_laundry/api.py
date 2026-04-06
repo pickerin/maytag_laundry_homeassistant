@@ -226,21 +226,22 @@ class WhirlpoolTSClient:
     async def _describe_thing(self, said: str) -> DeviceInfo:
         """Call AWS IoT DescribeThing API using boto3 (SigV4-signed).
 
-        boto3 is called in a thread executor to avoid blocking the event loop.
-        Only runs during device discovery — not in the polling loop.
+        Both client creation and the API call run in an executor
+        to avoid blocking the event loop.
         """
-        iot = boto3.client(
-            "iot",
-            region_name=self._aws_region,
-            aws_access_key_id=self._aws_access_key,
-            aws_secret_access_key=self._aws_secret_key,
-            aws_session_token=self._aws_session_token,
-        )
-
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None, lambda: iot.describe_thing(thingName=said)
-        )
+
+        def _boto3_describe():
+            iot = boto3.client(
+                "iot",
+                region_name=self._aws_region,
+                aws_access_key_id=self._aws_access_key,
+                aws_secret_access_key=self._aws_secret_key,
+                aws_session_token=self._aws_session_token,
+            )
+            return iot.describe_thing(thingName=said)
+
+        result = await loop.run_in_executor(None, _boto3_describe)
 
         attrs = result.get("attributes", {})
         return DeviceInfo(
@@ -312,21 +313,26 @@ class WhirlpoolTSClient:
         # Capture the event loop for use in MQTT callbacks (which run on awscrt threads)
         self._loop = asyncio.get_running_loop()
 
-        credentials_provider = awsauth.AwsCredentialsProvider.new_static(
-            access_key_id=self._aws_access_key,
-            secret_access_key=self._aws_secret_key,
-            session_token=self._aws_session_token,
-        )
-
         client_id = f"maytag-laundry-{uuid.uuid4().hex[:8]}"
-        self._mqtt_connection = mqtt_connection_builder.websockets_with_default_aws_signing(
-            endpoint=self._iot_endpoint,
-            region=self._aws_region,
-            credentials_provider=credentials_provider,
-            client_id=client_id,
-            on_connection_interrupted=self._on_connection_interrupted,
-            on_connection_resumed=self._on_connection_resumed,
-        )
+
+        # Build the connection object in an executor — the builder does
+        # blocking TLS/socket setup internally.
+        def _build_connection():
+            credentials_provider = awsauth.AwsCredentialsProvider.new_static(
+                access_key_id=self._aws_access_key,
+                secret_access_key=self._aws_secret_key,
+                session_token=self._aws_session_token,
+            )
+            return mqtt_connection_builder.websockets_with_default_aws_signing(
+                endpoint=self._iot_endpoint,
+                region=self._aws_region,
+                credentials_provider=credentials_provider,
+                client_id=client_id,
+                on_connection_interrupted=self._on_connection_interrupted,
+                on_connection_resumed=self._on_connection_resumed,
+            )
+
+        self._mqtt_connection = await self._loop.run_in_executor(None, _build_connection)
 
         connect_future = self._mqtt_connection.connect()
         await self._await_future(connect_future, timeout=15)

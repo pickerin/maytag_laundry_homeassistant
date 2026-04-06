@@ -15,7 +15,9 @@ _HA_MODULES = [
     "homeassistant.config_entries",
     "homeassistant.data_entry_flow",
     "homeassistant.helpers",
+    "homeassistant.helpers.aiohttp_client",
     "homeassistant.helpers.update_coordinator",
+    "homeassistant.helpers.entity_platform",
     "homeassistant.exceptions",
 ]
 for _mod_name in _HA_MODULES:

@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import logging
 
-import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WhirlpoolTSClient
 from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_BRAND
@@ -26,7 +26,7 @@ PLATFORMS = ["sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Maytag Laundry from a config entry."""
-    session = aiohttp.ClientSession()
+    session = async_get_clientsession(hass)
     client = WhirlpoolTSClient(
         email=entry.data[CONF_EMAIL],
         password=entry.data[CONF_PASSWORD],
