@@ -87,6 +87,7 @@ class WhirlpoolTSClient:
 
         # MQTT
         self._mqtt_connection = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def _decode_jwt(self, token: str) -> dict:
         """Decode JWT payload without signature verification."""
@@ -236,7 +237,8 @@ class WhirlpoolTSClient:
             aws_session_token=self._aws_session_token,
         )
 
-        result = await asyncio.get_event_loop().run_in_executor(
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
             None, lambda: iot.describe_thing(thingName=said)
         )
 
@@ -287,6 +289,17 @@ class WhirlpoolTSClient:
             "payload": {"addressee": "appliance", "command": "getState"},
         })
 
+    # --- MQTT helpers to avoid blocking the event loop ---
+
+    async def _await_future(self, future, timeout: float = 15) -> Any:
+        """Await an awscrt Future without blocking the asyncio event loop.
+
+        awscrt futures are threading futures, not asyncio futures.
+        We must run .result() in an executor to avoid blocking HA.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: future.result(timeout=timeout))
+
     # --- MQTT connection ---
 
     async def connect(self) -> None:
@@ -295,6 +308,9 @@ class WhirlpoolTSClient:
         from awsiot import mqtt_connection_builder
 
         await self.ensure_aws_credentials()
+
+        # Capture the event loop for use in MQTT callbacks (which run on awscrt threads)
+        self._loop = asyncio.get_running_loop()
 
         credentials_provider = awsauth.AwsCredentialsProvider.new_static(
             access_key_id=self._aws_access_key,
@@ -313,7 +329,7 @@ class WhirlpoolTSClient:
         )
 
         connect_future = self._mqtt_connection.connect()
-        connect_future.result(timeout=15)
+        await self._await_future(connect_future, timeout=15)
         _LOGGER.info("MQTT connected to %s as %s", self._iot_endpoint, client_id)
 
         # Subscribe to topics for each discovered device
@@ -328,7 +344,7 @@ class WhirlpoolTSClient:
                     qos=mqtt.QoS.AT_LEAST_ONCE,
                     callback=self._on_mqtt_message,
                 )
-                sub_future.result(timeout=10)
+                await self._await_future(sub_future, timeout=10)
                 _LOGGER.debug("Subscribed: %s", topic)
                 await asyncio.sleep(0.5)  # pace subscriptions per IoT policy
 
@@ -337,15 +353,19 @@ class WhirlpoolTSClient:
 
     def _on_connection_resumed(self, connection, return_code, session_present, **kwargs):
         _LOGGER.info("MQTT connection resumed (rc=%s)", return_code)
-        for said, callbacks in self._callbacks.items():
-            for cb in callbacks:
-                try:
-                    cb(said, None)
-                except Exception:
-                    _LOGGER.exception("Reconnect callback error for %s", said)
+        # This runs on an awscrt thread — schedule callbacks on the event loop
+        if self._loop is not None:
+            for said, callbacks in self._callbacks.items():
+                for cb in callbacks:
+                    self._loop.call_soon_threadsafe(cb, said, None)
 
     def _on_mqtt_message(self, topic: str, payload: bytes, dup, qos, retain, **kwargs):
-        """Handle incoming MQTT messages — state updates and command responses."""
+        """Handle incoming MQTT messages — state updates and command responses.
+
+        IMPORTANT: This callback runs on an awscrt thread, NOT the asyncio event loop.
+        We store state directly (dict assignment is thread-safe in CPython) and then
+        schedule callbacks on the event loop via call_soon_threadsafe.
+        """
         try:
             msg = json.loads(payload.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -366,13 +386,13 @@ class WhirlpoolTSClient:
         else:
             return
 
+        # Store state (dict assignment is atomic in CPython)
         self._device_state[said] = state
 
-        for cb in self._callbacks.get(said, []):
-            try:
-                cb(said, state)
-            except Exception:
-                _LOGGER.exception("Callback error for %s", said)
+        # Schedule callbacks on the event loop thread
+        if self._loop is not None:
+            for cb in self._callbacks.get(said, []):
+                self._loop.call_soon_threadsafe(cb, said, state)
 
     async def get_state(self, said: str) -> Optional[dict]:
         """Publish getState command and wait for response."""
@@ -390,9 +410,10 @@ class WhirlpoolTSClient:
             payload=payload,
             qos=mqtt.QoS.AT_LEAST_ONCE,
         )
-        publish_future.result(timeout=10)
+        await self._await_future(publish_future, timeout=10)
         _LOGGER.debug("Published getState for %s", said)
 
+        # Wait for response to arrive via _on_mqtt_message
         await asyncio.sleep(2)
         return self._device_state.get(said)
 
@@ -417,8 +438,9 @@ class WhirlpoolTSClient:
         if self._mqtt_connection:
             try:
                 disconnect_future = self._mqtt_connection.disconnect()
-                disconnect_future.result(timeout=10)
+                await self._await_future(disconnect_future, timeout=10)
             except Exception:
                 _LOGGER.exception("Error disconnecting MQTT")
             self._mqtt_connection = None
+            self._loop = None
             _LOGGER.info("MQTT disconnected")
