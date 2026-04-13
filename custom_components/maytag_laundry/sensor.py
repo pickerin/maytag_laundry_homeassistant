@@ -30,7 +30,7 @@ def extract_sensor_value(
         state: The raw getState response payload.
         appliance_type: "washer" or "dryer".
         sensor_key: One of: appliance_state, cycle_phase, time_remaining,
-                    door_status, active_fault, dry_temperature.
+                    door_status, active_fault, last_fault, dry_temperature.
     """
     appliance = state.get(appliance_type)
     if appliance is None:
@@ -54,6 +54,10 @@ def extract_sensor_value(
 
     if sensor_key == "active_fault":
         return state.get("activeFault")
+
+    if sensor_key == "last_fault":
+        history = state.get("faultHistory", [])
+        return next((f for f in history if f and f.lower() != "none"), None)
 
     if sensor_key == "dry_temperature":
         return appliance.get("dryTemperature")
@@ -117,6 +121,12 @@ try:
             sensor_key="active_fault",
             name="Active Fault",
             icon="mdi:alert-circle-outline",
+        ),
+        MaytagSensorDescription(
+            key="last_fault",
+            sensor_key="last_fault",
+            name="Last Fault",
+            icon="mdi:alert-circle",
         ),
         MaytagSensorDescription(
             key="dry_temperature",
@@ -227,6 +237,11 @@ try:
                 return {"lock_status": appliance.get("doorLockStatus")}
             if key == "active_fault":
                 return {"fault_history": state.get("faultHistory", [])}
+            if key == "last_fault":
+                return {
+                    "fault_history": state.get("faultHistory", []),
+                    "fault_time": state.get("faultTime"),
+                }
             return None
 
 except ImportError:

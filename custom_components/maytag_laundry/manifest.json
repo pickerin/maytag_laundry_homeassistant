@@ -1,7 +1,7 @@
 {
   "domain": "maytag_laundry",
   "name": "Maytag Laundry",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "requirements": ["awsiotsdk>=1.0.0", "boto3>=1.20.0"],
   "documentation": "https://github.com/pickerin/maytag_laundry_homeassistant",
   "issue_tracker": "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
