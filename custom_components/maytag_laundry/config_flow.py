@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import logging
 
-import aiohttp
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WhirlpoolTSClient, AuthError
 from .const import DOMAIN, CONF_EMAIL, CONF_PASSWORD, CONF_BRAND, CONF_DEVICES, BRAND_CONFIG
@@ -74,24 +74,23 @@ class MaytagLaundryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle reauth when credentials expire."""
         return await self.async_step_user()
 
-    @staticmethod
-    async def _validate_and_discover(email: str, password: str, brand: str) -> dict:
-        """Validate credentials and discover TS devices."""
-        async with aiohttp.ClientSession() as session:
-            client = WhirlpoolTSClient(
-                email=email,
-                password=password,
-                brand=brand,
-                session=session,
-            )
-            await client.authenticate()
+    async def _validate_and_discover(self, email: str, password: str, brand: str) -> dict:
+        """Validate credentials and discover TS devices using HA's managed session."""
+        session = async_get_clientsession(self.hass)
+        client = WhirlpoolTSClient(
+            email=email,
+            password=password,
+            brand=brand,
+            session=session,
+        )
+        await client.authenticate()
 
-            if not client.ts_saids:
-                return {}
+        if not client.ts_saids:
+            return {}
 
-            await client.ensure_aws_credentials()
-            await client.discover_devices()
-            return client.devices
+        await client.ensure_aws_credentials()
+        await client.discover_devices()
+        return client.devices
 
     @staticmethod
     def _schema(user_input: dict | None = None) -> vol.Schema:

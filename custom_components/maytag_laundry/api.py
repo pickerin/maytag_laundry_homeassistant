@@ -88,6 +88,8 @@ class WhirlpoolTSClient:
         # MQTT
         self._mqtt_connection = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._subscribed_topics: List[str] = []
+        self._refresh_task: Optional[asyncio.Task] = None
 
     def _decode_jwt(self, token: str) -> dict:
         """Decode JWT payload without signature verification."""
@@ -305,13 +307,25 @@ class WhirlpoolTSClient:
 
     async def connect(self) -> None:
         """Establish MQTT WebSocket connection and subscribe to all device topics."""
-        from awscrt import mqtt, auth as awsauth
-        from awsiot import mqtt_connection_builder
-
         await self.ensure_aws_credentials()
 
         # Capture the event loop for use in MQTT callbacks (which run on awscrt threads)
         self._loop = asyncio.get_running_loop()
+
+        await self._do_mqtt_connect()
+
+        # Start proactive credential refresh — AWS creds expire in ~1 hour
+        if self._refresh_task:
+            self._refresh_task.cancel()
+        self._refresh_task = self._loop.create_task(self._credential_refresh_loop())
+
+    async def _do_mqtt_connect(self) -> None:
+        """Build MQTT connection, connect, and subscribe to all device topics.
+
+        Uses current AWS credentials. Called by connect() and _rebuild_mqtt_connection().
+        """
+        from awscrt import mqtt, auth as awsauth
+        from awsiot import mqtt_connection_builder
 
         client_id = f"maytag-laundry-{uuid.uuid4().hex[:8]}"
 
@@ -339,6 +353,7 @@ class WhirlpoolTSClient:
         _LOGGER.info("MQTT connected to %s as %s", self._iot_endpoint, client_id)
 
         # Subscribe to topics for each discovered device
+        self._subscribed_topics = []
         for said, device in self.devices.items():
             model = device.model
             for topic in [
@@ -351,19 +366,84 @@ class WhirlpoolTSClient:
                     callback=self._on_mqtt_message,
                 )
                 await self._await_future(sub_future, timeout=10)
+                self._subscribed_topics.append(topic)
                 _LOGGER.debug("Subscribed: %s", topic)
                 await asyncio.sleep(0.5)  # pace subscriptions per IoT policy
+
+    async def _credential_refresh_loop(self) -> None:
+        """Background task: refresh AWS credentials and rebuild MQTT before they expire.
+
+        AWS temporary credentials last ~1 hour. We rebuild the connection 10 minutes
+        before expiry so the static credentials provider never sees expired creds.
+        """
+        try:
+            while True:
+                # Sleep until 10 minutes before credential expiry
+                refresh_in = max(60.0, self._aws_creds_expire_at - time.time() - 600)
+                _LOGGER.debug("AWS credential refresh scheduled in %.0f seconds", refresh_in)
+                await asyncio.sleep(refresh_in)
+                _LOGGER.info("Proactively refreshing AWS credentials before expiry")
+                await self._rebuild_mqtt_connection()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _LOGGER.exception("Credential refresh loop failed")
+
+    async def _rebuild_mqtt_connection(self) -> None:
+        """Force credential refresh and rebuild the MQTT connection.
+
+        Disconnects the existing connection (with its baked-in stale credentials),
+        obtains fresh AWS credentials, then reconnects and re-subscribes.
+        """
+        # Force credential refresh by invalidating the cache
+        self._aws_creds_expire_at = 0
+        await self.ensure_aws_credentials()
+
+        # Disconnect old connection
+        if self._mqtt_connection:
+            try:
+                disconnect_future = self._mqtt_connection.disconnect()
+                await self._await_future(disconnect_future, timeout=10)
+            except Exception:
+                _LOGGER.warning("Error disconnecting before MQTT rebuild (continuing)")
+            self._mqtt_connection = None
+
+        # Reconnect with fresh credentials
+        await self._do_mqtt_connect()
+        _LOGGER.info("MQTT connection rebuilt with fresh credentials")
+
+    async def _resubscribe(self) -> None:
+        """Re-subscribe to all tracked topics after awscrt auto-reconnect without session."""
+        if not self._mqtt_connection or not self._subscribed_topics:
+            return
+        from awscrt import mqtt
+        for topic in list(self._subscribed_topics):
+            try:
+                sub_future, _ = self._mqtt_connection.subscribe(
+                    topic=topic,
+                    qos=mqtt.QoS.AT_LEAST_ONCE,
+                    callback=self._on_mqtt_message,
+                )
+                await self._await_future(sub_future, timeout=10)
+                _LOGGER.debug("Re-subscribed: %s", topic)
+                await asyncio.sleep(0.5)
+            except Exception:
+                _LOGGER.exception("Failed to re-subscribe to %s", topic)
 
     def _on_connection_interrupted(self, connection, error, **kwargs):
         _LOGGER.warning("MQTT connection interrupted: %s", error)
 
     def _on_connection_resumed(self, connection, return_code, session_present, **kwargs):
-        _LOGGER.info("MQTT connection resumed (rc=%s)", return_code)
-        # This runs on an awscrt thread — schedule callbacks on the event loop
-        if self._loop is not None:
-            for said, callbacks in self._callbacks.items():
-                for cb in callbacks:
-                    self._loop.call_soon_threadsafe(cb, said, None)
+        _LOGGER.info("MQTT connection resumed (rc=%s, session_present=%s)", return_code, session_present)
+        if self._loop is None:
+            return
+        # Re-subscribe if the broker did not restore the session (subscriptions are lost)
+        if not session_present:
+            asyncio.run_coroutine_threadsafe(self._resubscribe(), self._loop)
+        # Notify coordinator callbacks so entities refresh
+        for said, callbacks in self._callbacks.items():
+            for cb in callbacks:
+                self._loop.call_soon_threadsafe(cb, said, None)
 
     def _on_mqtt_message(self, topic: str, payload: bytes, dup, qos, retain, **kwargs):
         """Handle incoming MQTT messages — state updates and command responses.
@@ -440,7 +520,16 @@ class WhirlpoolTSClient:
                 pass
 
     async def disconnect(self) -> None:
-        """Disconnect MQTT."""
+        """Disconnect MQTT and cancel background credential refresh task."""
+        # Cancel the credential refresh background task
+        if self._refresh_task:
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
+            self._refresh_task = None
+
         if self._mqtt_connection:
             try:
                 disconnect_future = self._mqtt_connection.disconnect()

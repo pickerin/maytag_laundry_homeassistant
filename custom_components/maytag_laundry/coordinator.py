@@ -38,6 +38,12 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except AuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except Exception as err:
+            # Disconnect any partially-established MQTT connection before re-raising
+            # to avoid orphaned awscrt connections that would hold Python callback refs.
+            try:
+                await self.client.disconnect()
+            except Exception:
+                _LOGGER.debug("Error cleaning up client after setup failure (ignored)")
             raise UpdateFailed(f"Setup failed: {err}") from err
 
         # Register push callbacks so MQTT updates trigger entity refresh
@@ -47,17 +53,13 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._started = True
 
     def _on_device_update(self, said: str, state: dict | None) -> None:
-        """Called by MQTT push or reconnect. Triggers HA entity update."""
+        """Called by MQTT push or reconnect. Schedules a coordinator refresh."""
         if state is None:
-            _LOGGER.debug("Reconnect signal for %s, will poll on next interval", said)
-            return
-
-        if self.data is None:
-            return
-        if said in self.data:
-            self.data[said]["state"] = state
-            self.data[said]["online"] = True
-            self.async_set_updated_data(self.data)
+            _LOGGER.debug("Reconnect signal for %s, scheduling refresh", said)
+        # Schedule a proper coordinated refresh rather than pushing data directly.
+        # This avoids HA 2026.4.x coordinator reentrancy violations that occur when
+        # async_set_updated_data is called while _async_update_data is in progress.
+        self.async_request_refresh()
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Poll all devices via getState — fallback for push updates."""
