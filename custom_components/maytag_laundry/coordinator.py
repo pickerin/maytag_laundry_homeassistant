@@ -56,10 +56,10 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Called by MQTT push or reconnect. Schedules a coordinator refresh."""
         if state is None:
             _LOGGER.debug("Reconnect signal for %s, scheduling refresh", said)
-        # Schedule a proper coordinated refresh rather than pushing data directly.
-        # This avoids HA 2026.4.x coordinator reentrancy violations that occur when
-        # async_set_updated_data is called while _async_update_data is in progress.
-        self.async_request_refresh()
+        # async_request_refresh became a coroutine in HA 2026.4.x — calling it
+        # without await silently discards the coroutine.  Use async_create_task
+        # so it is actually scheduled on the event loop.
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Poll all devices via getState — fallback for push updates."""

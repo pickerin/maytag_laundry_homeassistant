@@ -23,6 +23,25 @@ _LOGGER = logging.getLogger(__name__)
 
 _PROFILES_DIR = Path(__file__).parent / "profiles"
 
+# Pre-load all bundled profiles at module import time.  Import happens on a
+# SyncWorker thread, so synchronous file I/O here is safe and avoids the
+# "blocking call inside the event loop" warnings triggered when read_text()
+# is called during async_setup_entry (coordinator._async_setup → discover_devices).
+_PROFILE_CACHE: Dict[str, Optional["ApplianceProfile"]] = {}
+
+
+def _preload_profiles() -> None:
+    if not _PROFILES_DIR.exists():
+        return
+    for path in _PROFILES_DIR.glob("*.json"):
+        part_number = path.stem
+        try:
+            raw = json.loads(path.read_text())
+            _PROFILE_CACHE[part_number] = _parse_profile(part_number, raw)
+        except Exception:
+            _LOGGER.exception("Failed to pre-load capability profile %s", part_number)
+            _PROFILE_CACHE[part_number] = None
+
 
 @dataclass
 class ApplianceProfile:
@@ -39,25 +58,17 @@ class ApplianceProfile:
 
 
 def load_profile(part_number: str) -> Optional[ApplianceProfile]:
-    """Load and parse a bundled capability profile by part number.
+    """Return the pre-loaded capability profile for a part number, or None.
 
-    Returns None if no profile is bundled for this part number.
-    Devices without a profile continue to work with the base sensor set.
+    All profiles are loaded at module import time (_preload_profiles), so this
+    function is a pure dict lookup with no blocking I/O on the event loop.
     """
     if not part_number:
         return None
-
-    path = _PROFILES_DIR / f"{part_number}.json"
-    if not path.exists():
+    if part_number not in _PROFILE_CACHE:
         _LOGGER.debug("No bundled capability profile for part number %s", part_number)
         return None
-
-    try:
-        raw = json.loads(path.read_text())
-        return _parse_profile(part_number, raw)
-    except Exception:
-        _LOGGER.exception("Failed to parse capability profile %s", part_number)
-        return None
+    return _PROFILE_CACHE[part_number]
 
 
 def _parse_profile(part_number: str, raw: dict) -> ApplianceProfile:
@@ -93,3 +104,7 @@ def _parse_profile(part_number: str, raw: dict) -> ApplianceProfile:
         cycles=cycles,
         options=options,
     )
+
+
+# Trigger pre-load now that ApplianceProfile and _parse_profile are defined.
+_preload_profiles()
