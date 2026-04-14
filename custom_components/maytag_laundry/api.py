@@ -22,6 +22,7 @@ import aiohttp
 import boto3
 
 from .const import BRAND_CONFIG
+from .profiles import ApplianceProfile, load_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ class DeviceInfo:
     serial: str
     name: str
     wifi_mac: str = ""
+    capability_part_number: str = ""
+    profile: Optional[ApplianceProfile] = None
 
 
 class WhirlpoolTSClient:
@@ -254,6 +257,7 @@ class WhirlpoolTSClient:
             serial=attrs.get("Serial", ""),
             name=self._decode_hex_name(attrs.get("Name", said)),
             wifi_mac=attrs.get("WifiMacAddress", ""),
+            capability_part_number=attrs.get("CapabilityPartNumber", ""),
         )
 
     async def discover_devices(self) -> Dict[str, DeviceInfo]:
@@ -263,9 +267,12 @@ class WhirlpoolTSClient:
         for said in self.ts_saids:
             try:
                 device = await self._describe_thing(said)
+                device.profile = load_profile(device.capability_part_number)
                 self.devices[said] = device
                 _LOGGER.info(
-                    "Discovered device: %s (%s, %s)", device.name, device.model, device.said
+                    "Discovered device: %s (%s, %s, profile=%s)",
+                    device.name, device.model, device.said,
+                    device.profile.appliance_type if device.profile else "none",
                 )
             except Exception:
                 _LOGGER.exception("Failed to describe thing %s", said)
