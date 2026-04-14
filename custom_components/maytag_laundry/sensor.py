@@ -238,10 +238,7 @@ try:
             if key == "active_fault":
                 return {"fault_history": state.get("faultHistory", [])}
             if key == "last_fault":
-                return {
-                    "fault_history": state.get("faultHistory", []),
-                    "fault_time": state.get("faultTime"),
-                }
+                return {"fault_history": state.get("faultHistory", [])}
             return None
 
 except ImportError:
