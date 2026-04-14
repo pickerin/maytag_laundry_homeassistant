@@ -14,6 +14,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from .const import FAULT_DESCRIPTIONS
 from .profiles import ApplianceProfile
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,11 +28,6 @@ _APPLIANCE_STATES = [
     "standby", "running", "paused", "endOfCycle",
     "delay", "remoteStart", "clean",
 ]
-_CYCLE_PHASES = [
-    "sensing", "filling", "soaking", "washing",
-    "rinsing", "spinning", "draining", "cooling", "drying", "done",
-]
-
 
 def extract_appliance_type(state: dict) -> Optional[str]:
     """Detect whether a state payload is for a washer or dryer.
@@ -82,11 +78,17 @@ def extract_sensor_value(
         return appliance.get("doorStatus")
 
     if sensor_key == "active_fault":
-        return state.get("activeFault")
+        code = state.get("activeFault")
+        if not code:
+            return code
+        return FAULT_DESCRIPTIONS.get(code, code)
 
     if sensor_key == "last_fault":
         history = state.get("faultHistory", [])
-        return next((f for f in history if f and f.lower() != "none"), None)
+        code = next((f for f in history if f and f.lower() != "none"), None)
+        if not code:
+            return code
+        return FAULT_DESCRIPTIONS.get(code, code)
 
     if sensor_key == "remote_start_enable":
         val = state.get("remoteStartEnable")
@@ -225,8 +227,6 @@ try:
                 sensor_key="cycle_phase",
                 name="Cycle Phase",
                 icon="mdi:rotate-3d-variant",
-                device_class=SensorDeviceClass.ENUM,
-                options=_CYCLE_PHASES,
             ),
             MaytagSensorDescription(
                 key="time_remaining",

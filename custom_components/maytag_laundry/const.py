@@ -66,3 +66,41 @@ BRAND_CONFIG = {
         "aws_region": "us-east-2",
     },
 }
+
+# Fault code descriptions for Whirlpool/Maytag TS appliances.
+# Codes are from capability profiles (W11771387 washer, W11771436 dryer)
+# plus additional codes observed in the field.
+# Fallback: raw code is displayed when no entry is found.
+FAULT_DESCRIPTIONS: dict[str, str] = {
+    # --- Washer fault codes (F-series) ---
+    "F0E2": "Lid/door lock fault",
+    "F0E3": "Unbalanced load",
+    "F0E7": "Motor control fault",
+    "F0E8": "Lid/door switch open during cycle",
+    "F0E9": "Overcurrent on lid lock",
+    "F2E2": "User interface disconnected",
+    "F3E2": "Pressure sensor fault",
+    "F5E1": "Lid lock failure — lid cannot lock",
+    "F5E3": "Lid lock failure — lid cannot unlock",
+    "F5E4": "Lid lock fault (thermal)",
+    "F6E1": "Communication fault — main control to UI",
+    "F6E2": "Communication fault — main control to motor",
+    "F7E3": "Motor fault — speed error",
+    "F7E4": "Motor fault — overcurrent",
+    "F8E1": "Water inlet fault — no water detected",
+    "F8E3": "Overflow fault",
+    "F8E6": "Suds detected",
+    "F9E1": "Drain fault — water not draining",
+    # --- Dryer fault codes ---
+    "F2E1": "Keypad/user interface fault",
+    "F3E1": "Exhaust thermistor open/shorted",
+    "F3E3": "Moisture sensor fault",
+    "F7E1": "Motor fault",
+    "F3E5": "Inlet thermistor fault",
+    "F3E6": "Outlet thermistor fault",
+    "F4E1": "Heating element fault",
+    "F4E2": "Heating element relay fault",
+    "F4E4": "High-limit thermostat fault",
+    "F6E3": "Communication fault — main control to UI",
+    "F9E3": "Vent blockage detected",
+}

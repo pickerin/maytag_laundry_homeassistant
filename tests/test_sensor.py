@@ -93,7 +93,7 @@ class TestSensorValueExtraction:
         assert extract_sensor_value(WASHER_STATE, "washer", "active_fault") == "none"
 
     def test_washer_last_fault(self):
-        assert extract_sensor_value(WASHER_STATE, "washer", "last_fault") == "F0E3"
+        assert extract_sensor_value(WASHER_STATE, "washer", "last_fault") == "Unbalanced load"
 
     def test_washer_remote_start_off(self):
         assert extract_sensor_value(WASHER_STATE, "washer", "remote_start_enable") == "off"
