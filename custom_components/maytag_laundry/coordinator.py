@@ -101,4 +101,5 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def async_shutdown(self) -> None:
         """Disconnect MQTT on shutdown."""
+        await super().async_shutdown()
         await self.client.disconnect()

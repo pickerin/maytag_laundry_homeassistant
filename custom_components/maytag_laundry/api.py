@@ -390,11 +390,19 @@ class WhirlpoolTSClient:
                 _LOGGER.debug("AWS credential refresh scheduled in %.0f seconds", refresh_in)
                 await asyncio.sleep(refresh_in)
                 _LOGGER.info("Proactively refreshing AWS credentials before expiry")
-                await self._rebuild_mqtt_connection()
+                try:
+                    await self._rebuild_mqtt_connection()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    _LOGGER.exception(
+                        "Credential refresh failed; will retry in 60s"
+                    )
+                    await asyncio.sleep(60)
         except asyncio.CancelledError:
             pass
         except Exception:
-            _LOGGER.exception("Credential refresh loop failed")
+            _LOGGER.exception("Credential refresh loop exited unexpectedly")
 
     async def _rebuild_mqtt_connection(self) -> None:
         """Force credential refresh and rebuild the MQTT connection.
@@ -482,8 +490,11 @@ class WhirlpoolTSClient:
         # Store state (dict assignment is atomic in CPython)
         self._device_state[said] = state
 
-        # Schedule callbacks on the event loop thread
-        if self._loop is not None:
+        # Only fire coordinator callbacks for appliance-initiated state pushes.
+        # Command responses (cmd/ topics) update _device_state so get_state() can
+        # read them, but must NOT trigger async_request_refresh — doing so creates
+        # a self-sustaining poll loop: response → refresh → getState → response → ...
+        if topic.startswith("dt/") and self._loop is not None:
             for cb in self._callbacks.get(said, []):
                 self._loop.call_soon_threadsafe(cb, said, state)
 
@@ -491,6 +502,9 @@ class WhirlpoolTSClient:
         """Publish getState command and wait for response."""
         if said not in self.devices:
             return None
+
+        if not self._mqtt_connection:
+            return self._device_state.get(said)
 
         device = self.devices[said]
         topic = self._command_request_topic(device.model, said)
