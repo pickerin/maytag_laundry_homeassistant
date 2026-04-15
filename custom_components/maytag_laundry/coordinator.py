@@ -56,10 +56,16 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Called by MQTT push or reconnect. Schedules a coordinator refresh."""
         if state is None:
             _LOGGER.debug("Reconnect signal for %s, scheduling refresh", said)
-        # async_request_refresh became a coroutine in HA 2026.4.x — calling it
-        # without await silently discards the coroutine.  Use async_create_task
-        # so it is actually scheduled on the event loop.
-        self.hass.async_create_task(self.async_request_refresh())
+        # async_request_refresh is an async def in HA 2026.4.x and returns a
+        # coroutine.  hass.async_create_task() does not reliably schedule it in
+        # all HA versions.  asyncio.ensure_future() is guaranteed to create a
+        # Task from the coroutine on the running event loop, which is safe here
+        # because this callback is always invoked via call_soon_threadsafe.
+        result = self.async_request_refresh()
+        if asyncio.iscoroutine(result):
+            asyncio.ensure_future(result)
+        # If async_request_refresh is a plain @callback (pre-2026.4), it already
+        # ran above and returned None — nothing more to do.
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Poll all devices via getState — fallback for push updates."""
