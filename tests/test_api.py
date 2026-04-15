@@ -2,6 +2,7 @@
 import base64
 import json
 import time
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -125,7 +126,7 @@ class TestCognitoExchange:
                 "AccessKeyId": "AKID",
                 "SecretKey": "secret",
                 "SessionToken": "token",
-                "Expiration": 9999999999.0,
+                "Expiration": datetime.fromtimestamp(9999999999.0, tz=timezone.utc),
             },
             "IdentityId": "us-east-2:abc-123",
         })
@@ -158,7 +159,7 @@ class TestCognitoExchange:
                 "AccessKeyId": "AKID",
                 "SecretKey": "secret",
                 "SessionToken": "token",
-                "Expiration": 9999999999.0,
+                "Expiration": datetime.fromtimestamp(9999999999.0, tz=timezone.utc),
             },
             "IdentityId": "us-east-2:abc-123",
         })

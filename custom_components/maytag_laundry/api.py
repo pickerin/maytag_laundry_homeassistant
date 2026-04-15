@@ -93,6 +93,7 @@ class WhirlpoolTSClient:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._subscribed_topics: List[str] = []
         self._refresh_task: Optional[asyncio.Task] = None
+        self._credentials_failed: bool = False
 
     def _decode_jwt(self, token: str) -> dict:
         """Decode JWT payload without signature verification."""
@@ -200,7 +201,7 @@ class WhirlpoolTSClient:
         self._aws_access_key = creds["AccessKeyId"]
         self._aws_secret_key = creds["SecretKey"]
         self._aws_session_token = creds["SessionToken"]
-        self._aws_creds_expire_at = creds["Expiration"]
+        self._aws_creds_expire_at = creds["Expiration"].timestamp()
         _LOGGER.info("AWS credentials obtained, expires at %s", self._aws_creds_expire_at)
 
     async def ensure_aws_credentials(self) -> None:
@@ -382,27 +383,28 @@ class WhirlpoolTSClient:
 
         AWS temporary credentials last ~1 hour. We rebuild the connection 10 minutes
         before expiry so the static credentials provider never sees expired creds.
+        Runs indefinitely — on any failure it sets _credentials_failed and retries
+        in 60 seconds so the coordinator can mark entities unavailable until recovery.
         """
-        try:
-            while True:
+        while True:
+            try:
                 # Sleep until 10 minutes before credential expiry
                 refresh_in = max(60.0, self._aws_creds_expire_at - time.time() - 600)
                 _LOGGER.debug("AWS credential refresh scheduled in %.0f seconds", refresh_in)
                 await asyncio.sleep(refresh_in)
                 _LOGGER.info("Proactively refreshing AWS credentials before expiry")
-                try:
-                    await self._rebuild_mqtt_connection()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    _LOGGER.exception(
-                        "Credential refresh failed; will retry in 60s"
-                    )
-                    await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            _LOGGER.exception("Credential refresh loop exited unexpectedly")
+                await self._rebuild_mqtt_connection()
+                self._credentials_failed = False
+                _LOGGER.info("AWS credentials refreshed successfully")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception(
+                    "Credential refresh failed; entities will be unavailable until resolved. "
+                    "Retrying in 60s"
+                )
+                self._credentials_failed = True
+                await asyncio.sleep(60)
 
     async def _rebuild_mqtt_connection(self) -> None:
         """Force credential refresh and rebuild the MQTT connection.

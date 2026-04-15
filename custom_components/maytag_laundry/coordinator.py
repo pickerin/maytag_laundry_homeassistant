@@ -66,6 +66,16 @@ class MaytagLaundryCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self._started:
             await self._async_setup()
 
+        if self.client._credentials_failed:
+            _LOGGER.warning(
+                "AWS credentials could not be refreshed — all maytag_laundry "
+                "entities are unavailable until credentials are restored"
+            )
+            raise UpdateFailed(
+                "AWS credentials expired and could not be refreshed. "
+                "Entities will recover automatically once credentials are renewed."
+            )
+
         data: Dict[str, Any] = {}
 
         for said, device in self.client.devices.items():
