@@ -201,7 +201,12 @@ class WhirlpoolTSClient:
         self._aws_access_key = creds["AccessKeyId"]
         self._aws_secret_key = creds["SecretKey"]
         self._aws_session_token = creds["SessionToken"]
-        self._aws_creds_expire_at = creds["Expiration"].timestamp()
+        # Cognito returns Expiration as a Unix-epoch number when parsed by
+        # aiohttp's JSON decoder. boto3, when it parses the same response,
+        # would return a datetime. Handle both so this is robust regardless
+        # of how the response is parsed.
+        exp = creds["Expiration"]
+        self._aws_creds_expire_at = exp.timestamp() if hasattr(exp, "timestamp") else float(exp)
         _LOGGER.info("AWS credentials obtained, expires at %s", self._aws_creds_expire_at)
 
     async def ensure_aws_credentials(self) -> None:
