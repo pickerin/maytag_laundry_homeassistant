@@ -11,3 +11,4 @@ __pycache__/
 fixtures/
 fixtures.zip
 manuals/
+whirlpool_cli.py
