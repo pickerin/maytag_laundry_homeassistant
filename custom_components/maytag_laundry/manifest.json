@@ -1,11 +1,16 @@
 {
   "domain": "maytag_laundry",
   "name": "Maytag Laundry",
-  "version": "1.1.6",
-  "requirements": ["awsiotsdk>=1.0.0", "boto3>=1.20.0"],
-  "documentation": "https://github.com/pickerin/maytag_laundry_homeassistant",
-  "issue_tracker": "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
-  "codeowners": ["@pickerin"],
+  "codeowners": [
+    "@pickerin"
+  ],
   "config_flow": true,
-  "iot_class": "cloud_push"
+  "documentation": "https://github.com/pickerin/maytag_laundry_homeassistant",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
+  "requirements": [
+    "awsiotsdk>=1.0.0",
+    "boto3>=1.20.0"
+  ],
+  "version": "1.1.7"
 }
