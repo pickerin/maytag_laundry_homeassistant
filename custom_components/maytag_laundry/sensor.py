@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _APPLIANCE_STATES = [
     "standby", "running", "paused", "endOfCycle",
-    "delay", "remoteStart", "clean",
+    "delay", "remoteStart", "clean", "programming",
 ]
 
 def extract_appliance_type(state: dict) -> Optional[str]:
@@ -70,9 +70,10 @@ def extract_sensor_value(
     if sensor_key == "time_remaining":
         cycle_time = appliance.get("cycleTime", {})
         seconds = cycle_time.get("time")
-        if seconds is None:
+        try:
+            return math.ceil(float(seconds) / 60)  # API sometimes sends time as a string
+        except (TypeError, ValueError):
             return None
-        return math.ceil(seconds / 60)
 
     if sensor_key == "door_status":
         return appliance.get("doorStatus")

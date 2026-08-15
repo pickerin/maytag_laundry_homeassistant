@@ -86,6 +86,14 @@ class TestSensorValueExtraction:
         val = extract_sensor_value(WASHER_STATE, "washer", "time_remaining")
         assert val == 62  # 3665 seconds -> ceil(61.08) = 62 minutes
 
+    def test_washer_time_remaining_string(self):
+        state = {"washer": {"cycleTime": {"time": "3665"}}}
+        assert extract_sensor_value(state, "washer", "time_remaining") == 62
+
+    def test_washer_time_remaining_missing(self):
+        state = {"washer": {"cycleTime": {}}}
+        assert extract_sensor_value(state, "washer", "time_remaining") is None
+
     def test_washer_door_status(self):
         assert extract_sensor_value(WASHER_STATE, "washer", "door_status") == "closed"
 
