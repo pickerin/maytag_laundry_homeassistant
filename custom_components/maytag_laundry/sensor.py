@@ -29,6 +29,11 @@ _APPLIANCE_STATES = [
     "delay", "remoteStart", "clean", "programming",
 ]
 
+# Appliance states seen in the wild but not in _APPLIANCE_STATES are logged
+# once each, so new firmware values can be reported and documented instead of
+# silently disappearing.
+_LOGGED_UNKNOWN_STATES: set[str] = set()
+
 def extract_appliance_type(state: dict) -> Optional[str]:
     """Detect whether a state payload is for a washer or dryer.
 
@@ -58,7 +63,20 @@ def extract_sensor_value(
 
     # --- Common sensors ---
     if sensor_key == "appliance_state":
-        return appliance.get("applianceState")
+        value = appliance.get("applianceState")
+        if (
+            isinstance(value, str)
+            and value
+            and value not in _APPLIANCE_STATES
+            and value not in _LOGGED_UNKNOWN_STATES
+        ):
+            _LOGGED_UNKNOWN_STATES.add(value)
+            _LOGGER.warning(
+                "Unrecognised appliance state %r — please report it at "
+                "https://github.com/pickerin/maytag_laundry_homeassistant/issues",
+                value,
+            )
+        return value
 
     if sensor_key == "cycle_name":
         return appliance.get("cycleName")
@@ -220,8 +238,11 @@ try:
                 sensor_key="appliance_state",
                 name="State",
                 icon="mdi:washing-machine",
-                device_class=SensorDeviceClass.ENUM,
-                options=_APPLIANCE_STATES,
+                # Deliberately not an ENUM sensor. _APPLIANCE_STATES lists the
+                # states observed so far, not the states firmware can emit, and
+                # a value outside an ENUM's options is dropped rather than
+                # shown — which loses the end-of-cycle signal that automations
+                # trigger on. Unknown values are logged instead.
             ),
             MaytagSensorDescription(
                 key="cycle_phase",

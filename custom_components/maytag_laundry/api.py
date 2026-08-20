@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import logging
 import time
@@ -33,6 +34,20 @@ class AuthError(Exception):
 
 class DeviceNotFoundError(Exception):
     """Device SAID not found or not accessible."""
+
+
+def _deep_merge(base: dict, update: dict) -> dict:
+    """Recursively merge `update` into `base` and return `base`.
+
+    Appliance-initiated pushes carry only the fields that changed, so they must
+    be layered on top of the last known full state rather than replacing it.
+    """
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
 
 
 @dataclass
@@ -488,9 +503,15 @@ class WhirlpoolTSClient:
         said = parts[2]
 
         if topic.startswith("cmd/") and "response" in topic:
+            # getState responses carry the full document — replace outright.
             state = msg.get("payload", {})
         elif topic.startswith("dt/") and "state/update" in topic:
-            state = msg
+            # Appliance pushes are partial. Layer them over the cached document
+            # so unrelated fields survive; replacing here blanks every sensor
+            # the push did not mention until the next poll restores it.
+            state = _deep_merge(
+                copy.deepcopy(self._device_state.get(said) or {}), msg
+            )
         else:
             return
 
