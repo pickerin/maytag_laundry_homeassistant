@@ -269,3 +269,78 @@ class TestMQTTTopics:
         assert "timestamp" in payload
         assert payload["payload"]["addressee"] == "appliance"
         assert payload["payload"]["command"] == "getState"
+
+
+class TestStateMessages:
+    """Partial pushes must not blank the cached state document."""
+
+    FULL = {
+        "washer": {
+            "applianceState": "running",
+            "currentPhase": "wash",
+            "cycleTime": {"time": 3600, "timeComplete": 1775397826},
+            "doorStatus": "closed",
+        },
+        "activeFault": "none",
+    }
+
+    def _deliver(self, client, topic, msg):
+        client._on_mqtt_message(topic, json.dumps(msg).encode(), False, None, False)
+
+    def test_command_response_replaces_state(self, client):
+        """getState responses are the full document, so they replace."""
+        client._device_state["SAID1"] = {"washer": {"applianceState": "standby"}}
+        client._cognito_identity_id = "us-east-2:abc"
+        self._deliver(
+            client,
+            "cmd/MTW7205RR0/SAID1/response/us-east-2:abc",
+            {"response": "accepted", "payload": self.FULL},
+        )
+        assert client._device_state["SAID1"] == self.FULL
+
+    def test_partial_push_merges_into_cached_state(self, client):
+        """A push naming one field leaves every other field intact."""
+        client._device_state["SAID1"] = json.loads(json.dumps(self.FULL))
+        self._deliver(
+            client,
+            "dt/MTW7205RR0/SAID1/state/update",
+            {"washer": {"currentPhase": "spin"}},
+        )
+        state = client._device_state["SAID1"]["washer"]
+        assert state["currentPhase"] == "spin"
+        assert state["applianceState"] == "running"
+        assert state["cycleTime"]["timeComplete"] == 1775397826
+        assert client._device_state["SAID1"]["activeFault"] == "none"
+
+    def test_partial_push_merges_nested_dicts(self, client):
+        """Nested dicts merge key by key rather than being swapped whole."""
+        client._device_state["SAID1"] = json.loads(json.dumps(self.FULL))
+        self._deliver(
+            client,
+            "dt/MTW7205RR0/SAID1/state/update",
+            {"washer": {"cycleTime": {"time": 120}}},
+        )
+        cycle_time = client._device_state["SAID1"]["washer"]["cycleTime"]
+        assert cycle_time["time"] == 120
+        assert cycle_time["timeComplete"] == 1775397826
+
+    def test_push_without_cached_state_is_stored_as_is(self, client):
+        """First push before any poll still populates the cache."""
+        self._deliver(
+            client,
+            "dt/MTW7205RR0/SAID1/state/update",
+            {"washer": {"applianceState": "running"}},
+        )
+        assert client._device_state["SAID1"] == {"washer": {"applianceState": "running"}}
+
+    def test_push_does_not_mutate_previous_document(self, client):
+        """Merging works on a copy, so callbacks holding the old dict are safe."""
+        cached = json.loads(json.dumps(self.FULL))
+        client._device_state["SAID1"] = cached
+        self._deliver(
+            client,
+            "dt/MTW7205RR0/SAID1/state/update",
+            {"washer": {"currentPhase": "spin"}},
+        )
+        assert cached["washer"]["currentPhase"] == "wash"
+
