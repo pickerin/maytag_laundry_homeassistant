@@ -1,4 +1,5 @@
 """Tests for sensor state extraction."""
+from custom_components.maytag_laundry import sensor as sensor_module
 from custom_components.maytag_laundry.sensor import (
     extract_appliance_type,
     extract_sensor_value,
@@ -237,3 +238,30 @@ class TestFaultDescription:
     def test_active_fault_state_is_raw_code(self):
         state = {"dryer": {}, "activeFault": "F4E1"}
         assert extract_sensor_value(state, "dryer", "active_fault") == "F4E1"
+
+
+class TestUnrecognisedApplianceState:
+    """Firmware states outside the known list must still reach Home Assistant."""
+
+    def test_unknown_state_is_passed_through(self):
+        state = {"washer": {"applianceState": "cycleComplete"}}
+        assert extract_sensor_value(state, "washer", "appliance_state") == "cycleComplete"
+
+    def test_unknown_state_logged_once(self, caplog):
+        sensor_module._LOGGED_UNKNOWN_STATES.discard("someNewState")
+        state = {"washer": {"applianceState": "someNewState"}}
+        with caplog.at_level("WARNING"):
+            extract_sensor_value(state, "washer", "appliance_state")
+            extract_sensor_value(state, "washer", "appliance_state")
+        assert caplog.text.count("someNewState") == 1
+
+    def test_known_state_not_logged(self, caplog):
+        with caplog.at_level("WARNING"):
+            extract_sensor_value(WASHER_STATE, "washer", "appliance_state")
+        assert "Unrecognised appliance state" not in caplog.text
+
+    def test_empty_state_not_logged(self, caplog):
+        with caplog.at_level("WARNING"):
+            assert extract_sensor_value({"washer": {"applianceState": ""}}, "washer",
+                                        "appliance_state") == ""
+        assert "Unrecognised appliance state" not in caplog.text
