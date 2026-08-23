@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _APPLIANCE_STATES = [
     "standby", "running", "paused", "endOfCycle",
-    "delay", "remoteStart", "clean", "programming",
+    "delay", "remoteStart", "clean", "programming", "end",
 ]
 
 def extract_appliance_type(state: dict) -> Optional[str]:

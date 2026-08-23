@@ -2,6 +2,7 @@
 from custom_components.maytag_laundry.sensor import (
     extract_appliance_type,
     extract_sensor_value,
+    _APPLIANCE_STATES,
 )
 
 
@@ -185,3 +186,9 @@ class TestSensorValueExtraction:
 
     def test_boolean_sensor_missing_returns_none(self):
         assert extract_sensor_value({"dryer": {}}, "dryer", "low_air_flow") is None
+
+
+class TestApplianceStates:
+    def test_known_api_states_in_options(self):
+        for s in ("programming", "end", "endOfCycle", "running", "standby"):
+            assert s in _APPLIANCE_STATES
