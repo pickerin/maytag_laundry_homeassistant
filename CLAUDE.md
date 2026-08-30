@@ -12,8 +12,8 @@ Standard Home Assistant custom component using async config flow and cloud push+
 
 - **api.py** — Standalone async client (`WhirlpoolTSClient`). No HA dependencies. Implements the full auth chain: OAuth login → JWT decode of TS SAIDs → Cognito Identity exchange → AWS IoT MQTT. Provides device discovery via AWS IoT `describeThingShadow`, state subscriptions, and command publishing. Key exports: `WhirlpoolTSClient`, `AuthError`, `DeviceInfo`.
 - **coordinator.py** — `MaytagLaundryCoordinator` (subclass of `DataUpdateCoordinator`). Hybrid push+poll: subscribes to MQTT state updates for low-latency delivery and falls back to periodic polling via `DEFAULT_POLL_INTERVAL`. Handles `AuthError` → `ConfigEntryAuthFailed` escalation.
-- **config_flow.py** — User setup flow: collects email/password and brand selection (Maytag/Whirlpool/KitchenAid), authenticates via `WhirlpoolTSClient`, discovers TS appliances, stores credentials and device list in config entry.
-- **sensor.py** — Sensor entity definitions. Pure helper functions `extract_appliance_type` and `extract_sensor_value` are HA-free and fully unit-tested. Supports washer and dryer state payloads: appliance state, cycle name, time remaining, door status, active fault, temperature.
+- **config_flow.py** — User setup flow: collects email/password and brand selection (Maytag/Whirlpool/KitchenAid), authenticates via `WhirlpoolTSClient`, discovers TS appliances, stores credentials and device list in config entry. Includes a `reauth_confirm` step (password only) that ends with `async_update_reload_and_abort` — never `async_create_entry` or the unique-ID abort.
+- **sensor.py** — Sensor entity definitions. Helper functions `extract_appliance_type` and `extract_sensor_value` are pure logic and fully unit-tested (module imports HA at top level; tests stub the HA namespace via `tests/conftest.py`). Supports washer and dryer state payloads: appliance state, cycle name, time remaining, door status, active fault, temperature.
 - **const.py** — Constants: `DOMAIN = "maytag_laundry"`, `BRAND_CONFIG` (per-brand OAuth/Cognito endpoints for Maytag, Whirlpool, KitchenAid), `DEFAULT_POLL_INTERVAL`.
 - **__init__.py** — Integration setup (entry load/unload, coordinator wiring).
 
@@ -35,27 +35,23 @@ Email/Password → Whirlpool OAuth (brand-specific endpoint)
 
 ## Development
 
-**Test suite:** `tests/` directory with 33 tests across three files. Run with:
+**Test suite:** `tests/` directory. Run with:
 
 ```bash
 .venv/bin/python -m pytest tests/ -v
 ```
 
-Tests use `unittest.mock` stubs for the `homeassistant` namespace so no HA install is needed. All 33 tests pass.
+Tests use `unittest.mock` stubs for the `homeassistant` namespace (installed by `tests/conftest.py`) so no HA install is needed.
 
-**Import verification** (requires HA stubs, see `tests/conftest.py`):
+**Import verification** (reuses the conftest stubs; run from repo root):
 
 ```bash
 .venv/bin/python -c "
-import sys; from unittest.mock import MagicMock
-for m in ['homeassistant','homeassistant.core','homeassistant.config_entries',
-          'homeassistant.data_entry_flow','homeassistant.helpers',
-          'homeassistant.helpers.update_coordinator','homeassistant.exceptions']:
-    sys.modules[m] = MagicMock()
-sys.modules['homeassistant.config_entries'].ConfigFlow = type('ConfigFlow', (), {})
+import tests.conftest  # installs HA namespace stubs
 from custom_components.maytag_laundry.const import DOMAIN, BRAND_CONFIG
 from custom_components.maytag_laundry.api import WhirlpoolTSClient, AuthError, DeviceInfo
 from custom_components.maytag_laundry.sensor import extract_appliance_type, extract_sensor_value
+from custom_components.maytag_laundry.config_flow import MaytagLaundryConfigFlow
 print('All imports OK', DOMAIN, list(BRAND_CONFIG.keys()))
 "
 ```

@@ -14,7 +14,18 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .const import FAULT_DESCRIPTIONS
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN, FAULT_DESCRIPTIONS
+from .coordinator import MaytagLaundryCoordinator
 from .profiles import ApplianceProfile
 
 _LOGGER = logging.getLogger(__name__)
@@ -184,261 +195,246 @@ _DRYER_BOOLEAN_SENSOR_DEFS: list[tuple[str, str, str]] = [
 ]
 
 
-try:
-    from homeassistant.components.sensor import (
-        SensorDeviceClass,
-        SensorEntity,
-        SensorEntityDescription,
-    )
-    from homeassistant.config_entries import ConfigEntry
-    from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.entity_platform import AddEntitiesCallback
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+@dataclass(frozen=True)
+class MaytagSensorDescription(SensorEntityDescription):
+    """Describes a Maytag sensor entity."""
 
-    from .const import DOMAIN
-    from .coordinator import MaytagLaundryCoordinator
+    sensor_key: str = ""
 
-    @dataclass(frozen=True)
-    class MaytagSensorDescription(SensorEntityDescription):
-        """Describes a Maytag sensor entity."""
+def build_sensor_descriptions(
+    appliance_type: str,
+    profile: Optional[ApplianceProfile],
+) -> list[MaytagSensorDescription]:
+    """Build the sensor description list for one appliance.
 
-        sensor_key: str = ""
+    Base sensors are always included. Profile-driven option sensors are
+    added when a capability profile is available for the model.
+    Devices without a bundled profile continue to work with the base set.
+    """
+    descs: list[MaytagSensorDescription] = [
+        MaytagSensorDescription(
+            key="appliance_state",
+            sensor_key="appliance_state",
+            name="State",
+            icon="mdi:washing-machine",
+            device_class=SensorDeviceClass.ENUM,
+            options=_APPLIANCE_STATES,
+        ),
+        MaytagSensorDescription(
+            key="cycle_phase",
+            sensor_key="cycle_phase",
+            name="Cycle Phase",
+            icon="mdi:rotate-3d-variant",
+        ),
+        MaytagSensorDescription(
+            key="time_remaining",
+            sensor_key="time_remaining",
+            name="Time Remaining",
+            icon="mdi:timer-outline",
+            native_unit_of_measurement="min",
+            device_class=SensorDeviceClass.DURATION,
+        ),
+        MaytagSensorDescription(
+            key="door_status",
+            sensor_key="door_status",
+            name="Door",
+            icon="mdi:door",
+            device_class=SensorDeviceClass.ENUM,
+            options=["open", "closed"],
+        ),
+        MaytagSensorDescription(
+            key="active_fault",
+            sensor_key="active_fault",
+            name="Active Fault",
+            icon="mdi:alert-circle-outline",
+        ),
+        MaytagSensorDescription(
+            key="last_fault",
+            sensor_key="last_fault",
+            name="Last Fault",
+            icon="mdi:alert-circle",
+        ),
+        MaytagSensorDescription(
+            key="remote_start_enable",
+            sensor_key="remote_start_enable",
+            name="Remote Start",
+            icon="mdi:remote",
+            device_class=SensorDeviceClass.ENUM,
+            options=["on", "off"],
+        ),
+    ]
 
-    def build_sensor_descriptions(
-        appliance_type: str,
-        profile: Optional[ApplianceProfile],
-    ) -> list[MaytagSensorDescription]:
-        """Build the sensor description list for one appliance.
+    # Cycle name sensor — options come from the profile's cycle list
+    if profile:
+        descs.append(MaytagSensorDescription(
+            key="cycle_name",
+            sensor_key="cycle_name",
+            name="Cycle",
+            icon="mdi:state-machine",
+            device_class=SensorDeviceClass.ENUM,
+            options=profile.cycles,
+        ))
 
-        Base sensors are always included. Profile-driven option sensors are
-        added when a capability profile is available for the model.
-        Devices without a bundled profile continue to work with the base set.
-        """
-        descs: list[MaytagSensorDescription] = [
-            MaytagSensorDescription(
-                key="appliance_state",
-                sensor_key="appliance_state",
-                name="State",
-                icon="mdi:washing-machine",
-                device_class=SensorDeviceClass.ENUM,
-                options=_APPLIANCE_STATES,
-            ),
-            MaytagSensorDescription(
-                key="cycle_phase",
-                sensor_key="cycle_phase",
-                name="Cycle Phase",
-                icon="mdi:rotate-3d-variant",
-            ),
-            MaytagSensorDescription(
-                key="time_remaining",
-                sensor_key="time_remaining",
-                name="Time Remaining",
-                icon="mdi:timer-outline",
-                native_unit_of_measurement="min",
-                device_class=SensorDeviceClass.DURATION,
-            ),
-            MaytagSensorDescription(
-                key="door_status",
-                sensor_key="door_status",
-                name="Door",
-                icon="mdi:door",
-                device_class=SensorDeviceClass.ENUM,
-                options=["open", "closed"],
-            ),
-            MaytagSensorDescription(
-                key="active_fault",
-                sensor_key="active_fault",
-                name="Active Fault",
-                icon="mdi:alert-circle-outline",
-            ),
-            MaytagSensorDescription(
-                key="last_fault",
-                sensor_key="last_fault",
-                name="Last Fault",
-                icon="mdi:alert-circle",
-            ),
-            MaytagSensorDescription(
-                key="remote_start_enable",
-                sensor_key="remote_start_enable",
-                name="Remote Start",
-                icon="mdi:remote",
+    if appliance_type == "dryer":
+        # Dry temperature: always present for dryers; prefer profile options
+        dryer_temp_opts = (
+            profile.options.get("dryTemperature")
+            if profile else ["extraLow", "low", "medium", "high"]
+        )
+        descs.append(MaytagSensorDescription(
+            key="dry_temperature",
+            sensor_key="dry_temperature",
+            name="Dry Temperature",
+            icon="mdi:thermometer",
+            device_class=SensorDeviceClass.ENUM,
+            options=dryer_temp_opts,
+        ))
+        # Profile-driven dryer option sensors
+        if profile:
+            for s_key, name, icon, opt_key in _DRYER_OPTION_SENSOR_DEFS:
+                opts = profile.options.get(opt_key)
+                if opts:
+                    descs.append(MaytagSensorDescription(
+                        key=s_key,
+                        sensor_key=s_key,
+                        name=name,
+                        icon=icon,
+                        device_class=SensorDeviceClass.ENUM,
+                        options=opts,
+                    ))
+        # Boolean diagnostic sensors — always present for dryers
+        for s_key, name, icon in _DRYER_BOOLEAN_SENSOR_DEFS:
+            descs.append(MaytagSensorDescription(
+                key=s_key,
+                sensor_key=s_key,
+                name=name,
+                icon=icon,
                 device_class=SensorDeviceClass.ENUM,
                 options=["on", "off"],
-            ),
-        ]
+            ))
 
-        # Cycle name sensor — options come from the profile's cycle list
+    elif appliance_type == "washer":
         if profile:
-            descs.append(MaytagSensorDescription(
-                key="cycle_name",
-                sensor_key="cycle_name",
-                name="Cycle",
-                icon="mdi:state-machine",
-                device_class=SensorDeviceClass.ENUM,
-                options=profile.cycles,
-            ))
+            for s_key, name, icon, opt_key in _WASHER_OPTION_SENSOR_DEFS:
+                opts = profile.options.get(opt_key)
+                if opts:
+                    descs.append(MaytagSensorDescription(
+                        key=s_key,
+                        sensor_key=s_key,
+                        name=name,
+                        icon=icon,
+                        device_class=SensorDeviceClass.ENUM,
+                        options=opts,
+                    ))
 
-        if appliance_type == "dryer":
-            # Dry temperature: always present for dryers; prefer profile options
-            dryer_temp_opts = (
-                profile.options.get("dryTemperature")
-                if profile else ["extraLow", "low", "medium", "high"]
-            )
-            descs.append(MaytagSensorDescription(
-                key="dry_temperature",
-                sensor_key="dry_temperature",
-                name="Dry Temperature",
-                icon="mdi:thermometer",
-                device_class=SensorDeviceClass.ENUM,
-                options=dryer_temp_opts,
-            ))
-            # Profile-driven dryer option sensors
-            if profile:
-                for s_key, name, icon, opt_key in _DRYER_OPTION_SENSOR_DEFS:
-                    opts = profile.options.get(opt_key)
-                    if opts:
-                        descs.append(MaytagSensorDescription(
-                            key=s_key,
-                            sensor_key=s_key,
-                            name=name,
-                            icon=icon,
-                            device_class=SensorDeviceClass.ENUM,
-                            options=opts,
-                        ))
-            # Boolean diagnostic sensors — always present for dryers
-            for s_key, name, icon in _DRYER_BOOLEAN_SENSOR_DEFS:
-                descs.append(MaytagSensorDescription(
-                    key=s_key,
-                    sensor_key=s_key,
-                    name=name,
-                    icon=icon,
-                    device_class=SensorDeviceClass.ENUM,
-                    options=["on", "off"],
-                ))
+    return descs
 
-        elif appliance_type == "washer":
-            if profile:
-                for s_key, name, icon, opt_key in _WASHER_OPTION_SENSOR_DEFS:
-                    opts = profile.options.get(opt_key)
-                    if opts:
-                        descs.append(MaytagSensorDescription(
-                            key=s_key,
-                            sensor_key=s_key,
-                            name=name,
-                            icon=icon,
-                            device_class=SensorDeviceClass.ENUM,
-                            options=opts,
-                        ))
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Maytag sensor entities from a config entry."""
+    coordinator: MaytagLaundryCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-        return descs
+    entities: list[MaytagSensorEntity] = []
+    for said, device_data in coordinator.data.items():
+        device = coordinator.client.devices.get(said)
+        profile = device.profile if device else None
 
-    async def async_setup_entry(
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
-    ) -> None:
-        """Set up Maytag sensor entities from a config entry."""
-        coordinator: MaytagLaundryCoordinator = hass.data[DOMAIN][entry.entry_id]
-
-        entities: list[MaytagSensorEntity] = []
-        for said, device_data in coordinator.data.items():
-            device = coordinator.client.devices.get(said)
-            profile = device.profile if device else None
-
-            # Capability profile cavities key is authoritative for appliance type.
-            # Fall back to state inference for devices without a bundled profile.
-            if profile:
-                appliance_type = profile.appliance_type
-            else:
-                appliance_type = extract_appliance_type(device_data.get("state", {}))
-                if appliance_type is None:
-                    appliance_type = "washer"
-                    _LOGGER.warning(
-                        "Could not detect appliance type for %s, defaulting to washer", said
-                    )
-
-            for desc in build_sensor_descriptions(appliance_type, profile):
-                entities.append(
-                    MaytagSensorEntity(coordinator, said, appliance_type, desc)
+        # Capability profile cavities key is authoritative for appliance type.
+        # Fall back to state inference for devices without a bundled profile.
+        if profile:
+            appliance_type = profile.appliance_type
+        else:
+            appliance_type = extract_appliance_type(device_data.get("state", {}))
+            if appliance_type is None:
+                appliance_type = "washer"
+                _LOGGER.warning(
+                    "Could not detect appliance type for %s, defaulting to washer", said
                 )
 
-        async_add_entities(entities)
-
-    class MaytagSensorEntity(
-        CoordinatorEntity[MaytagLaundryCoordinator], SensorEntity
-    ):
-        """Sensor entity for a Maytag laundry appliance."""
-
-        entity_description: MaytagSensorDescription
-
-        def __init__(
-            self,
-            coordinator: MaytagLaundryCoordinator,
-            said: str,
-            appliance_type: str,
-            description: MaytagSensorDescription,
-        ) -> None:
-            super().__init__(coordinator)
-            self.entity_description = description
-            self._said = said
-            self._appliance_type = appliance_type
-
-            device_data = coordinator.data.get(said, {})
-            device_name = device_data.get("name", said)
-
-            self._attr_unique_id = f"{said}_{description.key}"
-            self._attr_has_entity_name = True
-
-            self._attr_device_info = {
-                "identifiers": {(DOMAIN, said)},
-                "name": device_name,
-                "manufacturer": device_data.get("brand", "Whirlpool"),
-                "model": device_data.get("model", ""),
-                "serial_number": device_data.get("serial", ""),
-            }
-
-        @property
-        def native_value(self) -> Any:
-            """Return the sensor value."""
-            if self.coordinator.data is None:
-                return None
-            device_data = self.coordinator.data.get(self._said, {})
-            state = device_data.get("state", {})
-            return extract_sensor_value(
-                state, self._appliance_type, self.entity_description.sensor_key
+        for desc in build_sensor_descriptions(appliance_type, profile):
+            entities.append(
+                MaytagSensorEntity(coordinator, said, appliance_type, desc)
             )
 
-        @property
-        def available(self) -> bool:
-            """Entity is available when we have state data."""
-            if self.coordinator.data is None:
-                return False
-            device_data = self.coordinator.data.get(self._said, {})
-            return device_data.get("online", False) and bool(device_data.get("state"))
+    async_add_entities(entities)
 
-        @property
-        def extra_state_attributes(self) -> dict[str, Any] | None:
-            """Return extra attributes based on sensor type."""
-            if self.coordinator.data is None:
-                return None
-            device_data = self.coordinator.data.get(self._said, {})
-            state = device_data.get("state", {})
-            appliance = state.get(self._appliance_type, {})
+class MaytagSensorEntity(
+    CoordinatorEntity[MaytagLaundryCoordinator], SensorEntity
+):
+    """Sensor entity for a Maytag laundry appliance."""
 
-            key = self.entity_description.sensor_key
-            if key == "appliance_state":
-                return {
-                    "cycle_name": appliance.get("cycleName"),
-                    "cycle_type": appliance.get("cycleType"),
-                }
-            if key == "time_remaining":
-                cycle_time = appliance.get("cycleTime", {})
-                return {"completion_timestamp": cycle_time.get("timeComplete")}
-            if key == "door_status" and self._appliance_type == "washer":
-                return {"lock_status": appliance.get("doorLockStatus")}
-            if key in ("active_fault", "last_fault"):
-                return {"fault_history": state.get("faultHistory", [])}
+    entity_description: MaytagSensorDescription
+
+    def __init__(
+        self,
+        coordinator: MaytagLaundryCoordinator,
+        said: str,
+        appliance_type: str,
+        description: MaytagSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._said = said
+        self._appliance_type = appliance_type
+
+        device_data = coordinator.data.get(said, {})
+        device_name = device_data.get("name", said)
+
+        self._attr_unique_id = f"{said}_{description.key}"
+        self._attr_has_entity_name = True
+
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, said)},
+            "name": device_name,
+            "manufacturer": device_data.get("brand", "Whirlpool"),
+            "model": device_data.get("model", ""),
+            "serial_number": device_data.get("serial", ""),
+        }
+
+    @property
+    def native_value(self) -> Any:
+        """Return the sensor value."""
+        if self.coordinator.data is None:
             return None
+        device_data = self.coordinator.data.get(self._said, {})
+        state = device_data.get("state", {})
+        return extract_sensor_value(
+            state, self._appliance_type, self.entity_description.sensor_key
+        )
 
-except ImportError:
-    pass
+    @property
+    def available(self) -> bool:
+        """Entity is available when we have state data."""
+        if self.coordinator.data is None:
+            return False
+        device_data = self.coordinator.data.get(self._said, {})
+        return device_data.get("online", False) and bool(device_data.get("state"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return extra attributes based on sensor type."""
+        if self.coordinator.data is None:
+            return None
+        device_data = self.coordinator.data.get(self._said, {})
+        state = device_data.get("state", {})
+        appliance = state.get(self._appliance_type, {})
+
+        key = self.entity_description.sensor_key
+        if key == "appliance_state":
+            return {
+                "cycle_name": appliance.get("cycleName"),
+                "cycle_type": appliance.get("cycleType"),
+            }
+        if key == "time_remaining":
+            cycle_time = appliance.get("cycleTime", {})
+            return {"completion_timestamp": cycle_time.get("timeComplete")}
+        if key == "door_status" and self._appliance_type == "washer":
+            return {"lock_status": appliance.get("doorLockStatus")}
+        if key in ("active_fault", "last_fault"):
+            return {"fault_history": state.get("faultHistory", [])}
+        return None
+
+

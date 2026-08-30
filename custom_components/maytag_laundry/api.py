@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional
 import aiohttp
 import boto3
 
-from .const import BRAND_CONFIG
+from .const import BRAND_CONFIG, STALE_TIMEOUT
 from .profiles import ApplianceProfile, load_profile
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,6 +86,8 @@ class WhirlpoolTSClient:
         # Device state
         self.devices: Dict[str, DeviceInfo] = {}
         self._device_state: Dict[str, dict] = {}
+        self._state_updated_at: Dict[str, float] = {}  # monotonic time of last MQTT update
+        self._stale_logged: Dict[str, bool] = {}
         self._callbacks: Dict[str, List[Callable]] = {}
 
         # MQTT
@@ -496,6 +498,8 @@ class WhirlpoolTSClient:
 
         # Store state (dict assignment is atomic in CPython)
         self._device_state[said] = state
+        self._state_updated_at[said] = time.monotonic()
+        self._stale_logged[said] = False
 
         # Only fire coordinator callbacks for appliance-initiated state pushes.
         # Command responses (cmd/ topics) update _device_state so get_state() can
@@ -505,13 +509,28 @@ class WhirlpoolTSClient:
             for cb in self._callbacks.get(said, []):
                 self._loop.call_soon_threadsafe(cb, said, state)
 
+    def _fresh_state(self, said: str) -> Optional[dict]:
+        """Return cached state, or None if it is older than STALE_TIMEOUT."""
+        state = self._device_state.get(said)
+        if state is None:
+            return None
+        age = time.monotonic() - self._state_updated_at.get(said, 0)
+        if age > STALE_TIMEOUT:
+            if not self._stale_logged.get(said):
+                _LOGGER.warning(
+                    "No state update from %s in %.0f s — marking unavailable", said, age
+                )
+                self._stale_logged[said] = True
+            return None
+        return state
+
     async def get_state(self, said: str) -> Optional[dict]:
         """Publish getState command and wait for response."""
         if said not in self.devices:
             return None
 
         if not self._mqtt_connection:
-            return self._device_state.get(said)
+            return self._fresh_state(said)
 
         device = self.devices[said]
         topic = self._command_request_topic(device.model, said)
@@ -529,7 +548,7 @@ class WhirlpoolTSClient:
 
         # Wait for response to arrive via _on_mqtt_message
         await asyncio.sleep(2)
-        return self._device_state.get(said)
+        return self._fresh_state(said)
 
     def get_cached_state(self, said: str) -> Optional[dict]:
         """Return last known state without publishing."""

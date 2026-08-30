@@ -72,7 +72,36 @@ class MaytagLaundryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reauth(self, entry_data: dict) -> FlowResult:
         """Handle reauth when credentials expire."""
-        return await self.async_step_user()
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None) -> FlowResult:
+        """Ask for a new password and update the existing entry."""
+        errors = {}
+        entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            password = user_input[CONF_PASSWORD]
+            try:
+                await self._validate_and_discover(
+                    entry.data[CONF_EMAIL], password, entry.data[CONF_BRAND]
+                )
+            except AuthError as err:
+                _LOGGER.error("Reauthentication failed: %s", err)
+                errors["base"] = "auth_failed"
+            except Exception:
+                _LOGGER.exception("Unexpected error during reauth")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_PASSWORD: password}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}),
+            description_placeholders={CONF_EMAIL: entry.data[CONF_EMAIL]},
+            errors=errors,
+        )
 
     async def _validate_and_discover(self, email: str, password: str, brand: str) -> dict:
         """Validate credentials and discover TS devices using HA's managed session."""

@@ -269,3 +269,39 @@ class TestMQTTTopics:
         assert "timestamp" in payload
         assert payload["payload"]["addressee"] == "appliance"
         assert payload["payload"]["command"] == "getState"
+
+
+class TestStaleState:
+    def test_fresh_state_returned(self, client):
+        client.devices["SAID1"] = MagicMock()
+        client._device_state["SAID1"] = {"washer": {}}
+        client._state_updated_at["SAID1"] = time.monotonic()
+        assert client._fresh_state("SAID1") == {"washer": {}}
+
+    def test_stale_state_returns_none(self, client):
+        client.devices["SAID1"] = MagicMock()
+        client._device_state["SAID1"] = {"washer": {}}
+        client._state_updated_at["SAID1"] = time.monotonic() - 301
+        assert client._fresh_state("SAID1") is None
+
+    def test_never_reported_returns_none(self, client):
+        assert client._fresh_state("SAID1") is None
+
+    @pytest.mark.asyncio
+    async def test_get_state_no_connection_stale(self, client):
+        """get_state without MQTT must not resurrect stale cached state."""
+        client.devices["SAID1"] = MagicMock()
+        client._device_state["SAID1"] = {"washer": {}}
+        client._state_updated_at["SAID1"] = time.monotonic() - 301
+        assert await client.get_state("SAID1") is None
+
+    def test_mqtt_message_refreshes_timestamp(self, client):
+        client._state_updated_at["SAID1"] = time.monotonic() - 301
+        before = time.monotonic()
+        client._on_mqtt_message(
+            "dt/appliance/SAID1/state/update",
+            json.dumps({"washer": {}}).encode(),
+            False, 1, False,
+        )
+        assert client._state_updated_at["SAID1"] >= before
+        assert client._fresh_state("SAID1") == {"washer": {}}

@@ -2,9 +2,12 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![HA Version](https://img.shields.io/badge/HA-2025.7.2+-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
 
 Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and **KitchenAid** laundry appliances (washers and dryers) using the Whirlpool cloud API over AWS IoT MQTT.
+
+> [!NOTE]
+> Home Assistant's built-in [whirlpool integration](https://www.home-assistant.io/integrations/whirlpool/) also covers Maytag, but only the **legacy** appliances that use the Whirlpool REST API. This integration covers the **newer TS (Thing Shadow) appliances** that the core integration cannot see. If your appliance shows up in core's whirlpool integration, you don't need this one — and vice versa.
 
 ## Features
 
@@ -76,11 +79,10 @@ Additional attribute on **Time Remaining**: `completion_timestamp`
 ## Installation
 
 1. Open **HACS** in Home Assistant
-2. Click the three-dot menu (top right) → **Custom repositories**
-3. Add `https://github.com/pickerin/maytag_laundry_homeassistant` with category **Integration**
-4. Click **Add**
-5. Search for "Maytag" in HACS and click **Download**
-6. **Restart Home Assistant**
+2. Search for "Maytag Laundry" and click **Download**
+3. **Restart Home Assistant**
+
+If the integration is not yet available in the HACS default store, add it as a custom repository first: three-dot menu (top right) → **Custom repositories** → add `https://github.com/pickerin/maytag_laundry_homeassistant` with category **Integration**.
 
 ## Setup
 
