@@ -83,4 +83,4 @@ tests/
     test_sensor.py     Sensor extraction helper tests
 ```
 
-HACS metadata is in `hacs.json` at repo root. Minimum HA version: 2025.7.2.
+HACS metadata is in `hacs.json` at repo root. Minimum HA version: 2026.3.0 (required for in-tree brand icons at `custom_components/maytag_laundry/brand/` — home-assistant/brands no longer accepts custom integrations).

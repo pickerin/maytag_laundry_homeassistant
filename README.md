@@ -1,8 +1,8 @@
 # Maytag Laundry — Home Assistant Integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
-[![HA Version](https://img.shields.io/badge/HA-2025.7.2+-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
+[![HA Version](https://img.shields.io/badge/HA-2026.3.0+-blue.svg)](https://www.home-assistant.io/)
+[![Version](https://img.shields.io/badge/version-1.2.1-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
 
 Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and **KitchenAid** laundry appliances (washers and dryers) using the Whirlpool cloud API over AWS IoT MQTT.
 
@@ -72,7 +72,7 @@ Additional attribute on **Time Remaining**: `completion_timestamp`
 
 ## Requirements
 
-- Home Assistant 2025.7.2 or newer
+- Home Assistant 2026.3.0 or newer
 - A Maytag, Whirlpool, or KitchenAid account with **newer (TS) connected appliances**
 - [HACS](https://hacs.xyz/) installed
 
