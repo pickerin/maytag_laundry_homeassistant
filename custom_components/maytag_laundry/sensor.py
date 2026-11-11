@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -79,12 +80,26 @@ def extract_sensor_value(
         return phase if phase else None  # suppress empty string when idle
 
     if sensor_key == "time_remaining":
+        # cycleTime.time is the cycle's estimated length, not a countdown;
+        # the countdown is timeComplete (epoch seconds) minus now.
         cycle_time = appliance.get("cycleTime", {})
-        seconds = cycle_time.get("time")
+        timer_state = cycle_time.get("state")
         try:
-            return math.ceil(float(seconds) / 60)  # API sometimes sends time as a string
+            # API sometimes sends numbers as strings
+            complete = float(cycle_time.get("timeComplete"))
+            if not complete:
+                return None
+            if timer_state in ("idle", "completed"):
+                return 0  # timeComplete still describes the previous cycle
+            if timer_state == "paused":
+                # Hold the value while paused; timePaused is when the hold began.
+                now = float(cycle_time.get("timePaused"))
+            else:
+                now = time.time()
         except (TypeError, ValueError):
             return None
+        # Dryers overrun their last estimate by several minutes; clamp at 0.
+        return max(0, math.ceil((complete - now) / 60))
 
     if sensor_key == "door_status":
         return appliance.get("doorStatus")

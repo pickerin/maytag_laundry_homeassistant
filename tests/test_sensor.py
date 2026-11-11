@@ -83,13 +83,40 @@ class TestSensorValueExtraction:
         state = {"washer": {"currentPhase": ""}}
         assert extract_sensor_value(state, "washer", "cycle_phase") is None
 
-    def test_washer_time_remaining_minutes(self):
-        val = extract_sensor_value(WASHER_STATE, "washer", "time_remaining")
-        assert val == 62  # 3665 seconds -> ceil(61.08) = 62 minutes
+    def test_washer_time_remaining_counts_down_to_time_complete(self, monkeypatch):
+        # 3665 s length, but only 600 s left until timeComplete
+        monkeypatch.setattr("time.time", lambda: 1775397826 - 600)
+        assert extract_sensor_value(WASHER_STATE, "washer", "time_remaining") == 10
 
-    def test_washer_time_remaining_string(self):
-        state = {"washer": {"cycleTime": {"time": "3665"}}}
-        assert extract_sensor_value(state, "washer", "time_remaining") == 62
+    def test_time_remaining_string_values(self, monkeypatch):
+        monkeypatch.setattr("time.time", lambda: 1000.0)
+        state = {"washer": {"cycleTime": {"state": "running", "timeComplete": "1090"}}}
+        assert extract_sensor_value(state, "washer", "time_remaining") == 2
+
+    def test_time_remaining_overrun_clamps_to_zero(self, monkeypatch):
+        monkeypatch.setattr("time.time", lambda: 1775397826 + 500)
+        assert extract_sensor_value(WASHER_STATE, "washer", "time_remaining") == 0
+
+    def test_time_remaining_holds_while_paused(self, monkeypatch):
+        # Capture: washer timer paused while applianceState stayed running
+        monkeypatch.setattr("time.time", lambda: 1790944270 + 300)
+        state = {"washer": {"cycleTime": {
+            "state": "paused", "time": 6334,
+            "timeComplete": 1790949851, "timePaused": 1790944270,
+        }}}
+        assert extract_sensor_value(state, "washer", "time_remaining") == 94
+
+    def test_time_remaining_paused_without_time_paused(self):
+        state = {"washer": {"cycleTime": {"state": "paused", "timeComplete": 1790949851}}}
+        assert extract_sensor_value(state, "washer", "time_remaining") is None
+
+    def test_time_remaining_idle_is_zero(self, monkeypatch):
+        # Standby: timeComplete is left over from the previous cycle
+        monkeypatch.setattr("time.time", lambda: 1790893357 - 600)
+        state = {"washer": {"cycleTime": {
+            "state": "idle", "time": 935, "timeComplete": 1790893357,
+        }}}
+        assert extract_sensor_value(state, "washer", "time_remaining") == 0
 
     def test_washer_time_remaining_missing(self):
         state = {"washer": {"cycleTime": {}}}
@@ -163,7 +190,8 @@ class TestSensorValueExtraction:
     def test_dryer_pets(self):
         assert extract_sensor_value(DRYER_STATE, "dryer", "pets") == "on"
 
-    def test_dryer_time_remaining(self):
+    def test_dryer_time_remaining(self, monkeypatch):
+        monkeypatch.setattr("time.time", lambda: 1775395276 - 1215)
         val = extract_sensor_value(DRYER_STATE, "dryer", "time_remaining")
         assert val == 21  # 1215 seconds -> ceil(20.25) = 21 minutes
 
