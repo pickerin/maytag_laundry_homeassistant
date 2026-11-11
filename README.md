@@ -2,7 +2,7 @@
 
 [![HACS Default](https://img.shields.io/badge/HACS-Default-blue.svg)](https://hacs.xyz/)
 [![HA Version](https://img.shields.io/badge/HA-2026.3.0+-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
+[![Version](https://img.shields.io/badge/version-1.3.1-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
 
 Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and **KitchenAid** laundry appliances (washers and dryers) using the Whirlpool cloud API over AWS IoT MQTT.
 
