@@ -54,6 +54,11 @@ def extract_appliance_type(state: dict) -> Optional[str]:
     return None
 
 
+def fault_description(appliance_type: str, code: Any) -> Optional[str]:
+    """Describe a fault code for this appliance type; None if not documented."""
+    return FAULT_DESCRIPTIONS.get(appliance_type, {}).get(code)
+
+
 def extract_sensor_value(
     state: dict, appliance_type: str, sensor_key: str
 ) -> Any:
@@ -105,17 +110,11 @@ def extract_sensor_value(
         return appliance.get("doorStatus")
 
     if sensor_key == "active_fault":
-        code = state.get("activeFault")
-        if not code:
-            return code
-        return FAULT_DESCRIPTIONS.get(code, code)
+        return state.get("activeFault")
 
     if sensor_key == "last_fault":
         history = state.get("faultHistory", [])
-        code = next((f for f in history if f and f.lower() != "none"), None)
-        if not code:
-            return code
-        return FAULT_DESCRIPTIONS.get(code, code)
+        return next((f for f in history if f and f.lower() != "none"), None)
 
     if sensor_key == "remote_start_enable":
         val = state.get("remoteStartEnable")
@@ -449,7 +448,11 @@ class MaytagSensorEntity(
         if key == "door_status" and self._appliance_type == "washer":
             return {"lock_status": appliance.get("doorLockStatus")}
         if key in ("active_fault", "last_fault"):
-            return {"fault_history": state.get("faultHistory", [])}
+            code = extract_sensor_value(state, self._appliance_type, key)
+            return {
+                "description": fault_description(self._appliance_type, code),
+                "fault_history": state.get("faultHistory", []),
+            }
         return None
 
 

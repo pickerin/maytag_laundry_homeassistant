@@ -2,6 +2,7 @@
 from custom_components.maytag_laundry.sensor import (
     extract_appliance_type,
     extract_sensor_value,
+    fault_description,
     _APPLIANCE_STATES,
 )
 
@@ -129,7 +130,8 @@ class TestSensorValueExtraction:
         assert extract_sensor_value(WASHER_STATE, "washer", "active_fault") == "none"
 
     def test_washer_last_fault(self):
-        assert extract_sensor_value(WASHER_STATE, "washer", "last_fault") == "Unbalanced load"
+        # State is the raw code; the description is an attribute
+        assert extract_sensor_value(WASHER_STATE, "washer", "last_fault") == "F0E3"
 
     def test_washer_remote_start_off(self):
         assert extract_sensor_value(WASHER_STATE, "washer", "remote_start_enable") == "off"
@@ -220,3 +222,18 @@ class TestApplianceStates:
     def test_known_api_states_in_options(self):
         for s in ("programming", "end", "endOfCycle", "running", "standby"):
             assert s in _APPLIANCE_STATES
+
+
+class TestFaultDescription:
+    def test_same_code_differs_by_appliance(self):
+        assert fault_description("washer", "F7E1") == "Motor speed sensor fault"
+        assert fault_description("dryer", "F7E1") == "Motor system fault"
+
+    def test_undocumented_code_has_no_description(self):
+        assert fault_description("dryer", "F9E3") is None
+        assert fault_description("washer", "none") is None
+        assert fault_description("washer", None) is None
+
+    def test_active_fault_state_is_raw_code(self):
+        state = {"dryer": {}, "activeFault": "F4E1"}
+        assert extract_sensor_value(state, "dryer", "active_fault") == "F4E1"

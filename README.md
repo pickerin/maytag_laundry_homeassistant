@@ -2,7 +2,7 @@
 
 [![HACS Default](https://img.shields.io/badge/HACS-Default-blue.svg)](https://hacs.xyz/)
 [![HA Version](https://img.shields.io/badge/HA-2026.3.0+-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-1.2.2-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
 
 Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and **KitchenAid** laundry appliances (washers and dryers) using the Whirlpool cloud API over AWS IoT MQTT.
 
@@ -29,8 +29,8 @@ Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and 
 | Cycle Phase | `sensing`, `filling`, `rinsing`, `spinning`, … | |
 | Time Remaining | `42` (min) | |
 | Door | `open`, `closed` | Attribute: `lock_status` |
-| Active Fault | `none`, `F0E3`, … | Attribute: `fault_history` |
-| Last Fault | `F0E3`, … | Most recent non-none fault code |
+| Active Fault | `none`, `F0E3`, … | Raw fault code. Attributes: `description`, `fault_history` |
+| Last Fault | `F0E3`, … | Most recent non-none fault code. Attributes: `description`, `fault_history` |
 | Remote Start | `on`, `off` | |
 | Soil Level | `light`, `normal`, `heavy`, `extraHeavy`, … | |
 | Spin Speed | `off`, `fast`, … | |
@@ -53,8 +53,8 @@ Additional attribute on **Time Remaining**: `completion_timestamp`
 | Cycle Phase | `drying`, `cooling`, `done`, … | |
 | Time Remaining | `35` (min) | |
 | Door | `open`, `closed` | |
-| Active Fault | `none`, `F0E3`, … | Attribute: `fault_history` |
-| Last Fault | `F0E3`, … | Most recent non-none fault code |
+| Active Fault | `none`, `F0E3`, … | Raw fault code. Attributes: `description`, `fault_history` |
+| Last Fault | `F0E3`, … | Most recent non-none fault code. Attributes: `description`, `fault_history` |
 | Remote Start | `on`, `off` | |
 | Dry Temperature | `extraLow`, `low`, `medium`, `high` | |
 | Dry Level | `lessDry`, `normalDry`, `extraDry` | |
