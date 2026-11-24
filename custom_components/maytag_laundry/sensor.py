@@ -208,6 +208,7 @@ _WASHER_OPTION_SENSOR_DEFS: list[tuple[str, str, str, str]] = [
     ("extra_power",      "Extra Power",      "mdi:lightning-bolt",    "extraPower"),
     ("dispenser",        "Dispenser",        "mdi:spray",             "dispenser"),
     ("pets",             "Pets",             "mdi:paw",               "pets"),
+    ("steam",            "Steam",            "mdi:cloud",             "steam"),
 ]
 
 _DRYER_OPTION_SENSOR_DEFS: list[tuple[str, str, str, str]] = [

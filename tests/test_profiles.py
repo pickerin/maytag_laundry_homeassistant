@@ -157,3 +157,36 @@ class TestLoadProfile:
         assert "dryTemperature" in profile.options
         assert "medium" in profile.options["dryTemperature"]
         assert "high" in profile.options["dryTemperature"]
+
+    def test_load_front_load_washer_profile(self):
+        # MFW7020RU0, contributed by ewilson1983
+        profile = load_profile("W11812024")
+        assert profile is not None
+        assert profile.appliance_type == "washer"
+        assert "normal" in profile.cycles
+        assert "cleanWasher1" in profile.cycles
+        assert "extraHot" in profile.options["washTemperature"]
+
+    def test_load_med7020_dryer_profile(self):
+        # MED7020RU0, contributed by ewilson1983
+        profile = load_profile("W11804872")
+        assert profile is not None
+        assert profile.appliance_type == "dryer"
+        assert "normal" in profile.cycles
+        assert "airOnly" in profile.options["dryTemperature"]
+
+    def test_front_load_washer_gets_steam_sensor(self):
+        from custom_components.maytag_laundry.sensor import (
+            build_sensor_descriptions,
+            extract_sensor_value,
+        )
+        descs = {d.key: d for d in build_sensor_descriptions("washer", load_profile("W11812024"))}
+        assert descs["steam"].options == ["off", "on"]
+        # Captured standby state of an MFW7020RU0 after a Clean Washer cycle
+        state = {"washer": {"cycleName": "cleanWasher1", "steam": "on"}}
+        assert extract_sensor_value(state, "washer", "steam") == "on"
+
+    def test_top_load_washer_has_no_steam_sensor(self):
+        from custom_components.maytag_laundry.sensor import build_sensor_descriptions
+        keys = [d.key for d in build_sensor_descriptions("washer", load_profile("W11771387"))]
+        assert "steam" not in keys

@@ -2,7 +2,7 @@
 
 [![HACS Default](https://img.shields.io/badge/HACS-Default-blue.svg)](https://hacs.xyz/)
 [![HA Version](https://img.shields.io/badge/HA-2026.3.0+-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-1.3.1-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
+[![Version](https://img.shields.io/badge/version-1.3.2-green.svg)](https://github.com/pickerin/maytag_laundry_homeassistant/releases)
 
 Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and **KitchenAid** laundry appliances (washers and dryers) using the Whirlpool cloud API over AWS IoT MQTT.
 
@@ -13,7 +13,7 @@ Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and 
 
 - **Real-time updates** via MQTT push with automatic polling fallback
 - **Capability-driven sensor discovery** — appliance profiles are loaded from bundled AWS IoT capability documents, so sensors and their valid values are specific to your exact model
-- **Comprehensive washer sensors:** state, cycle, cycle phase, time remaining, door, fault tracking, soil level, spin speed, wash temperature, water level, extra rinse, extra power, dispenser, pets, remote start
+- **Comprehensive washer sensors:** state, cycle, cycle phase, time remaining, door, fault tracking, soil level, spin speed, wash temperature, water level, extra rinse, extra power, dispenser, pets, steam, remote start
 - **Comprehensive dryer sensors:** state, cycle, cycle phase, time remaining, door, fault tracking, dry temperature, dry level, wrinkle shield, steam, damp dry, extra power, pets, remote start, low air flow, lint trap, drum light
 - **Multi-brand support:** Maytag, Whirlpool, and KitchenAid
 - **Device grouping:** all sensors are grouped under their appliance in the HA device registry with model and serial number
@@ -40,6 +40,7 @@ Custom [HACS](https://hacs.xyz/) integration for **Maytag**, **Whirlpool**, and 
 | Extra Power | `off`, `on` | |
 | Dispenser | `off`, `softenerOnly`, … | |
 | Pets | `off`, `on` | |
+| Steam | `off`, `on` | Front-load models that have a Steam option |
 
 Additional attributes on **State**: `cycle_name`, `cycle_type`  
 Additional attribute on **Time Remaining**: `completion_timestamp`
@@ -97,6 +98,8 @@ Sensor availability is determined by the appliance's capability profile. Full se
 |-------------|-------|------|
 | W11771387 | MTW7205RR0 | Maytag Top-Load Washer |
 | W11771436 | MGD7205RR0 | Maytag Gas Dryer |
+| W11812024 | MFW7020RU0 | Maytag Front-Load Washer |
+| W11804872 | MED7020RU0 | Maytag Electric Dryer |
 
 Appliances with other part numbers will still connect and report the 7 base sensors (state, cycle phase, time remaining, door, active fault, last fault, remote start). Additional profiles will be added as capability documents are collected from more models. See [Contributing](#contributing) if you'd like to help.
 
@@ -148,6 +151,7 @@ The `--redact` flag scrubs all device identifiers before writing. Zip the `fixtu
 ## Credits
 
 - [Paul T. (pts211)](https://github.com/pts211/ha-whirlpool-aws) for capability document research, the appliance profile concept, and fixture capture tooling
+- ewilson1983 for the capability fixtures behind the MFW7020RU0 washer and MED7020RU0 dryer profiles
 - [abmantis/whirlpool-sixth-sense](https://github.com/abmantis/whirlpool-sixth-sense) for original Whirlpool OAuth reverse engineering
 
 ## Disclaimer
